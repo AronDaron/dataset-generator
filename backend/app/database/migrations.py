@@ -35,4 +35,8 @@ ALL_MIGRATIONS = [CREATE_SETTINGS, CREATE_JOBS, CREATE_EXAMPLES]
 async def run_migrations(db: aiosqlite.Connection) -> None:
     for stmt in ALL_MIGRATIONS:
         await db.execute(stmt)
+    try:
+        await db.execute("ALTER TABLE jobs ADD COLUMN progress_json TEXT")
+    except Exception:
+        pass  # kolumna juz istnieje
     await db.commit()
