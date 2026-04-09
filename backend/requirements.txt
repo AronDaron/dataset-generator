@@ -1,0 +1,11 @@
+# Installed via apt-get on Ubuntu 22.04
+# fastapi==0.63.0
+# uvicorn==0.15.0
+# pydantic==1.8.2
+# python-multipart==0.0.5
+#
+# For production/newer versions, install via pip:
+# fastapi>=0.115.0
+# uvicorn[standard]>=0.30.0
+# python-multipart>=0.0.9
+# pydantic-settings>=2.4.0
