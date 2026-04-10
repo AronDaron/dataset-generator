@@ -11,6 +11,7 @@ from typing import Any
 import aiosqlite
 
 from app.models.jobs import CategoryConfig, CategoryProgress, JobConfig, ProgressJson
+from app.services.export_service import export_job
 from app.services.openrouter_client import OpenRouterError, chat_completion
 from app.services.prompt_builder import (
     build_example_generation_prompt,
@@ -354,6 +355,10 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
 
         progress.current_stage = "completed"
         await _update_progress(db, job_id, "completed", progress)
+        try:
+            await export_job(job_id, db)
+        except Exception:
+            logger.exception("Auto-export failed for job %s (non-fatal)", job_id)
 
     except _CancelledError:
         progress.current_stage = "cancelled"

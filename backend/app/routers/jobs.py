@@ -4,10 +4,11 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.database import get_db
 from app.models.jobs import (
@@ -18,6 +19,7 @@ from app.models.jobs import (
     JobResponse,
     ProgressJson,
 )
+from app.services.export_service import export_job
 from app.services.job_runner import cancel_job, run_job
 
 router = APIRouter()
@@ -188,6 +190,116 @@ async def cancel_job_endpoint(
         (now, job_id),
     )
     await db.commit()
+
+
+async def _stream_job_progress(
+    job_id: str,
+    db: aiosqlite.Connection,
+) -> AsyncGenerator[str, None]:
+    """Async generator yielding SSE messages for the given job."""
+    POLL_INTERVAL = 0.75
+    KEEPALIVE_EVERY_TICKS = int(20 / POLL_INTERVAL)  # ~20 s
+    TERMINAL_STATES = {"completed", "cancelled", "failed"}
+
+    # Validate job exists before opening the stream
+    async with await db.execute(
+        "SELECT id FROM jobs WHERE id = ?", (job_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    if not row:
+        yield "event: error\ndata: " + json.dumps({"detail": "Job not found"}) + "\n\n"
+        return
+
+    tick = 0
+    while True:
+        async with await db.execute(
+            "SELECT status, progress_json FROM jobs WHERE id = ?", (job_id,)
+        ) as cursor:
+            job_row = await cursor.fetchone()
+
+        async with await db.execute(
+            "SELECT id, job_id, content_json, format, tokens, created_at "
+            "FROM examples WHERE job_id = ? ORDER BY created_at DESC LIMIT 5",
+            (job_id,),
+        ) as cursor:
+            ex_rows = await cursor.fetchall()
+
+        status = job_row["status"]
+        progress = _parse_progress(job_row)
+        examples = [
+            {
+                "id": r["id"],
+                "job_id": r["job_id"],
+                "content": json.loads(r["content_json"]),
+                "format": r["format"],
+                "tokens": r["tokens"],
+                "created_at": r["created_at"],
+            }
+            for r in ex_rows
+        ]
+
+        payload = json.dumps({
+            "status": status,
+            "progress": progress.model_dump() if progress else None,
+            "examples": examples,
+        })
+
+        is_terminal = status in TERMINAL_STATES
+        event_name = "done" if is_terminal else "progress"
+        yield f"event: {event_name}\ndata: {payload}\n\n"
+
+        if is_terminal:
+            return
+
+        tick += 1
+        if tick >= KEEPALIVE_EVERY_TICKS:
+            yield ": keepalive\n\n"
+            tick = 0
+
+        await asyncio.sleep(POLL_INTERVAL)
+
+
+@router.get("/{job_id}/stream")
+async def stream_job_progress(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """SSE: stream job progress until terminal state (completed/cancelled/failed)."""
+    return StreamingResponse(
+        _stream_job_progress(job_id, db),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@router.get("/{job_id}/export")
+async def export_job_endpoint(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    """Export job examples to JSONL and return the file path. Job must be completed."""
+    async with await db.execute(
+        "SELECT status FROM jobs WHERE id = ?", (job_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row["status"] != "completed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is not completed (current status: {row['status']})",
+        )
+
+    try:
+        path = await export_job(job_id, db)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"path": str(path), "job_id": job_id}
 
 
 @router.get("/{job_id}/examples", response_model=list[ExampleResponse])

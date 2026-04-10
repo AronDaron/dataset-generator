@@ -9,6 +9,7 @@ from app.routers import health
 from app.routers import settings as settings_router
 from app.routers import openrouter as openrouter_router
 from app.routers import jobs as jobs_router
+from app.routers import datasets as datasets_router
 
 
 @asynccontextmanager
@@ -37,3 +38,4 @@ app.include_router(health.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api/settings")
 app.include_router(openrouter_router.router, prefix="/api/openrouter")
 app.include_router(jobs_router.router, prefix="/api/jobs")
+app.include_router(datasets_router.router, prefix="/api/datasets")
