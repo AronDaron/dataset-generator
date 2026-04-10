@@ -48,6 +48,7 @@ async function request<T>(
     const text = await res.text().catch(() => `HTTP ${res.status}`)
     throw new Error(text || `HTTP ${res.status}`)
   }
+  if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
 
@@ -92,4 +93,51 @@ export async function createJob(cfg: JobConfig): Promise<JobCreatedResponse> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(cfg),
   })
+}
+
+// ---- SSE types ----
+
+export interface CategoryProgress {
+  target: number
+  completed: number
+  skipped: number
+}
+
+export interface ProgressJson {
+  total_examples: number
+  completed: number
+  skipped: number
+  current_stage: 'pending' | 'generating_topics' | 'generating_examples' | 'completed' | 'cancelled' | 'failed'
+  current_category: string | null
+  categories: Record<string, CategoryProgress>
+}
+
+export interface SSEExample {
+  id: string
+  job_id: string
+  content: Record<string, unknown>
+  format: 'sharegpt' | 'alpaca' | 'chatml'
+  tokens: number
+  created_at: string
+}
+
+export interface SSEProgressPayload {
+  status: string
+  progress: ProgressJson | null
+  examples: SSEExample[]
+}
+
+// ---- New API functions ----
+
+export async function cancelJob(jobId: string): Promise<void> {
+  const res = await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' })
+  // 409 = already terminal — swallow silently
+  if (!res.ok && res.status !== 409) {
+    const text = await res.text().catch(() => `HTTP ${res.status}`)
+    throw new Error(text || `HTTP ${res.status}`)
+  }
+}
+
+export async function openDatasetsFolder(): Promise<void> {
+  await request<{ path: string }>('/api/datasets/open-folder', { method: 'POST' })
 }

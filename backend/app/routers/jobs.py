@@ -83,7 +83,7 @@ def _row_to_list_item(row) -> JobListItem:
     )
 
 
-@router.post("/", response_model=JobResponse, status_code=201)
+@router.post("", response_model=JobResponse, status_code=201)
 async def create_job(
     body: JobConfig,
     db: aiosqlite.Connection = Depends(get_db),
@@ -136,7 +136,7 @@ async def create_job(
     )
 
 
-@router.get("/", response_model=list[JobListItem])
+@router.get("", response_model=list[JobListItem])
 async def list_jobs(
     db: aiosqlite.Connection = Depends(get_db),
 ) -> list[JobListItem]:

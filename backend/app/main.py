@@ -24,6 +24,7 @@ app = FastAPI(
     version="0.1.0",
     description="Backend API for Dataset Generator desktop app",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 app.add_middleware(

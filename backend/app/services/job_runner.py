@@ -93,6 +93,20 @@ def _parse_json_response(raw: str) -> Any:
     raise ValueError(f"Could not parse JSON from LLM output: {raw[:200]!r}")
 
 
+_THINK_RE = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
+
+
+def _extract_content(response: dict) -> str:
+    """Return the text content from an OpenRouter response, stripped of think blocks.
+
+    Handles:
+    - None content (models that put reasoning in a separate 'reasoning' field)
+    - <think>...</think> blocks (Qwen3 and similar reasoning models)
+    """
+    raw = response["choices"][0]["message"].get("content") or ""
+    return _THINK_RE.sub("", raw).strip()
+
+
 def _inject_conciseness_hint(messages: list[dict], target_tokens: int) -> list[dict]:
     """Append a conciseness reminder to the last user message."""
     messages = [m.copy() for m in messages]
@@ -133,10 +147,16 @@ async def _generate_and_validate_example(
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
-        except OpenRouterError:
+        except Exception:
+            if attempt == 0:
+                continue
             return None
 
-        raw = response["choices"][0]["message"]["content"]
+        raw = _extract_content(response)
+        if not raw:
+            if attempt == 0:
+                continue
+            return None
 
         try:
             parsed = _parse_json_response(raw)
@@ -208,10 +228,10 @@ async def _generate_topics(
                 temperature=config.temperature,
                 max_tokens=min(2048, config.max_tokens),
             )
-        except OpenRouterError:
+        except Exception:
             continue
 
-        raw = response["choices"][0]["message"]["content"]
+        raw = _extract_content(response)
         try:
             topics = _parse_json_response(raw)
             if isinstance(topics, list) and topics:
@@ -243,10 +263,10 @@ async def _generate_outline(
             temperature=config.temperature,
             max_tokens=512,
         )
-    except OpenRouterError:
+    except Exception:
         return []
 
-    raw = response["choices"][0]["message"]["content"]
+    raw = _extract_content(response)
     try:
         points = _parse_json_response(raw)
         if isinstance(points, list):
@@ -326,11 +346,16 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
 
         # ── Stage 2+3: Outline + Example per topic ────────────────────────
         progress.current_stage = "generating_examples"
+        await _update_progress(db, job_id, "running", progress)
+
         for cat, _ in zip(config.categories, counts):
             topics = all_topics.get(cat.name, [])
             for topic in topics:
                 if is_cancelled(job_id):
                     raise _CancelledError()
+
+                progress.current_category = cat.name
+                await _update_progress(db, job_id, "running", progress)
 
                 outline = await _generate_outline(api_key, config, cat, topic)
                 await asyncio.sleep(delay)
@@ -350,7 +375,6 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
                     progress.categories[cat.name].skipped += 1
                     progress.skipped += 1
 
-                progress.current_category = cat.name
                 await _update_progress(db, job_id, "running", progress)
 
         progress.current_stage = "completed"

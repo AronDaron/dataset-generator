@@ -21,6 +21,7 @@ def build_topic_generation_prompt(
         "Requirements:\n"
         "- Each topic must be specific and actionable (not vague like 'basics')\n"
         "- Topics must be diverse — avoid repetition in concept or phrasing\n"
+        "- Write topics in the same language as the Category Description above\n"
         "- Output ONLY a valid JSON array of strings, no explanations, no markdown fences\n"
         '- Example format: ["Topic one here", "Topic two here", "Topic three here"]\n\n'
         "Output the JSON array now:"
@@ -72,7 +73,14 @@ def build_example_generation_prompt(
         "You are an expert AI training data creator. "
         "You generate realistic, high-quality question-and-answer pairs or multi-turn "
         "conversations that will be used to fine-tune language models. "
-        "Your output must be valid JSON and nothing else — no markdown, no explanation."
+        "Your output must be valid JSON and nothing else — no markdown, no explanation.\n\n"
+        "Critical rules:\n"
+        "- For technical topics (programming, code, frameworks, tools): assistant responses MUST "
+        "include practical, working code snippets. Code goes inside the conversation content as "
+        "plain text with inline formatting (e.g. ```python ... ```).\n"
+        "- Write the entire conversation (user and assistant messages) in the same language as "
+        "the Topic. Do not switch languages mid-example.\n"
+        "- Make the user's question realistic — something a real developer would actually ask."
     )
     user = (
         f"Generate ONE training example for fine-tuning a language model.\n\n"

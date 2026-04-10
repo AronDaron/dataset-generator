@@ -53,10 +53,10 @@ export function SelectField({
       </Select.Trigger>
 
       <Select.Portal>
-        <Select.Positioner sideOffset={4}>
+        <Select.Positioner sideOffset={4} className="z-[200]">
           <Select.Popup
             className={cn(
-              'z-50 w-[var(--available-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg',
+              'w-[var(--anchor-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg',
               'outline-none',
             )}
           >

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Settings2, Rocket, CheckCircle, AlertCircle } from 'lucide-react'
+import { Settings2, Rocket, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SettingsDialog } from '@/components/settings/SettingsDialog'
 import { CategoryList } from '@/components/generator/CategoryList'
@@ -9,6 +9,7 @@ import { GlobalControls } from '@/components/generator/GlobalControls'
 import { FormatSelector } from '@/components/generator/FormatSelector'
 import { type Category, toApiProportions } from '@/lib/proportions'
 import { getApiKey, getConfig, createJob } from '@/lib/api'
+import { JobDashboard } from '@/components/generator/JobDashboard'
 
 type ExportFormat = 'sharegpt' | 'alpaca' | 'chatml'
 
@@ -119,50 +120,45 @@ export default function GeneratorPage() {
 
         {/* Right column — parameters (sticky on xl) */}
         <div className="space-y-5 xl:sticky xl:top-20 xl:self-start">
-          <GlobalControls
-            temperature={temperature}
-            maxTokens={maxTokens}
-            totalExamples={totalExamples}
-            onTemperatureChange={setTemperature}
-            onMaxTokensChange={setMaxTokens}
-            onTotalExamplesChange={setTotalExamples}
-          />
+          {createdJobId ? (
+            <JobDashboard jobId={createdJobId} onReset={() => setCreatedJobId(null)} />
+          ) : (
+            <>
+              <GlobalControls
+                temperature={temperature}
+                maxTokens={maxTokens}
+                totalExamples={totalExamples}
+                onTemperatureChange={setTemperature}
+                onMaxTokensChange={setMaxTokens}
+                onTotalExamplesChange={setTotalExamples}
+              />
 
-          <FormatSelector value={format} onChange={(f) => setFormat(f as ExportFormat)} />
+              <FormatSelector value={format} onChange={(f) => setFormat(f as ExportFormat)} />
 
-          {/* Submit */}
-          <div className="space-y-3">
-            {submitError && (
-              <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                <AlertCircle className="mt-0.5 size-4 shrink-0" />
-                {submitError}
+              {/* Submit */}
+              <div className="space-y-3">
+                {submitError && (
+                  <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                    {submitError}
+                  </div>
+                )}
+                <Button
+                  onClick={handleStart}
+                  disabled={isSubmitting || !isValid()}
+                  size="lg"
+                  className="w-full"
+                >
+                  {isSubmitting ? 'Uruchamianie...' : 'Generuj dataset'}
+                </Button>
+                <p className="text-center text-xs text-muted-foreground">
+                  {categories.length > 0
+                    ? `${categories.length} kategori${categories.length === 1 ? 'a' : categories.length < 5 ? 'e' : 'i'} · ${totalExamples.toLocaleString('pl-PL')} przykładów · ${format.toUpperCase()}`
+                    : 'Wybierz kategorie z listy po lewej'}
+                </p>
               </div>
-            )}
-            {createdJobId && (
-              <div className="flex items-start gap-2 rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">
-                <CheckCircle className="mt-0.5 size-4 shrink-0" />
-                <span>
-                  Zadanie uruchomione!{' '}
-                  <code className="font-mono text-xs opacity-75">{createdJobId}</code>
-                  <br />
-                  <span className="opacity-75">Dashboard postępu dostępny w Fazie 5.</span>
-                </span>
-              </div>
-            )}
-            <Button
-              onClick={handleStart}
-              disabled={isSubmitting || !isValid()}
-              size="lg"
-              className="w-full"
-            >
-              {isSubmitting ? 'Uruchamianie...' : 'Generuj dataset'}
-            </Button>
-            <p className="text-center text-xs text-muted-foreground">
-              {categories.length > 0
-                ? `${categories.length} kategori${categories.length === 1 ? 'a' : categories.length < 5 ? 'e' : 'i'} · ${totalExamples.toLocaleString('pl-PL')} przykładów · ${format.toUpperCase()}`
-                : 'Wybierz kategorie z listy po lewej'}
-            </p>
-          </div>
+            </>
+          )}
         </div>
       </div>
 

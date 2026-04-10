@@ -46,9 +46,49 @@ export function removeCategory(
   return remaining.map((c, i) => ({ ...c, proportion: shares[i] }))
 }
 
+// Distribute `budget` across `others` proportionally to their current values.
+// Each slot gets at least `min`. Uses largest-remainder for integer rounding.
+function distributeProportionally(
+  others: Category[],
+  budget: number,
+  min: number,
+): Category[] {
+  if (others.length === 0) return []
+
+  const totalCurrent = others.reduce((s, c) => s + c.proportion, 0)
+
+  // Fall back to even distribution if all others are at zero (shouldn't happen with min=1)
+  if (totalCurrent === 0) {
+    return distributeEvenly(budget, others.length).map((share, i) => ({
+      ...others[i],
+      proportion: share,
+    }))
+  }
+
+  const minBudget = others.length * min
+  const extraBudget = budget - minBudget
+
+  if (extraBudget <= 0) {
+    // Budget too small — everyone gets the minimum
+    return others.map((c) => ({ ...c, proportion: min }))
+  }
+
+  // Distribute extra budget proportionally, then use largest-remainder for integers
+  const floats = others.map((c) => (c.proportion / totalCurrent) * extraBudget)
+  const floors = floats.map((f) => Math.floor(f))
+  const leftover = extraBudget - floors.reduce((s, v) => s + v, 0)
+
+  const fractions = floors.map((_, i) => ({ i, frac: floats[i] - floors[i] }))
+  fractions.sort((a, b) => b.frac - a.frac)
+  for (let k = 0; k < leftover; k++) floors[fractions[k].i]++
+
+  return others.map((c, i) => ({ ...c, proportion: min + floors[i] }))
+}
+
 // Adjust a single slider. The chosen category gets `newVal` (clamped to keep
-// every other category at minimum 1). The budget left over is distributed
-// evenly across the other categories.
+// every other category at minimum 1). The remaining budget is distributed
+// among the other categories proportionally to their current values,
+// so existing ratios are preserved as closely as possible.
 export function adjustProportion(
   categories: Category[],
   id: string,
@@ -60,8 +100,7 @@ export function adjustProportion(
   const clamped = Math.max(min, Math.min(max, Math.round(newVal)))
   const budget = 100 - clamped
   const others = categories.filter((c) => c.id !== id)
-  const shares = distributeEvenly(budget, others.length)
-  const adjustedOthers = others.map((c, i) => ({ ...c, proportion: shares[i] }))
+  const adjustedOthers = distributeProportionally(others, budget, min)
 
   return categories.map((c) => {
     if (c.id === id) return { ...c, proportion: clamped }
