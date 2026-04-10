@@ -1,0 +1,82 @@
+'use client'
+
+import { Trash2 } from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { SliderField } from '@/components/ui/slider'
+import type { Category } from '@/lib/proportions'
+import { CATEGORY_COLORS } from './CategoryList'
+
+interface CategoryCardProps {
+  category: Category
+  index: number
+  totalCategories: number
+  canRemove: boolean
+  onUpdate: (id: string, patch: Partial<Omit<Category, 'id'>>) => void
+  onRemove: (id: string) => void
+  onProportionChange: (id: string, value: number) => void
+}
+
+export function CategoryCard({
+  category,
+  index,
+  totalCategories,
+  canRemove,
+  onUpdate,
+  onRemove,
+  onProportionChange,
+}: CategoryCardProps) {
+  const maxProportion = 100 - (totalCategories - 1)
+  const color = CATEGORY_COLORS[index % CATEGORY_COLORS.length]
+
+  return (
+    <Card>
+      <CardContent className="pt-4 space-y-3">
+        {/* Header row */}
+        <div className="flex items-center gap-2">
+          <span className={`size-2.5 rounded-full shrink-0 ${color}`} />
+          <input
+            type="text"
+            value={category.name}
+            onChange={(e) => onUpdate(category.id, { name: e.target.value })}
+            maxLength={100}
+            placeholder="Nazwa kategorii"
+            className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-medium outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+          />
+          {canRemove && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onRemove(category.id)}
+              title="Usuń kategorię"
+              className="text-muted-foreground hover:text-destructive shrink-0"
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          )}
+        </div>
+
+        {/* Description */}
+        <textarea
+          value={category.description}
+          onChange={(e) => onUpdate(category.id, { description: e.target.value })}
+          maxLength={1000}
+          rows={2}
+          placeholder="Opis kategorii (min. 10 znaków) — np. &quot;Pytania i odpowiedzi dotyczące programowania w TypeScript&quot;"
+          className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 text-foreground placeholder:text-muted-foreground"
+        />
+
+        {/* Proportion slider */}
+        <SliderField
+          value={category.proportion}
+          onValueChange={(v) => onProportionChange(category.id, v)}
+          min={1}
+          max={maxProportion}
+          step={1}
+          label="Udział"
+          displayValue={`${category.proportion}%`}
+        />
+      </CardContent>
+    </Card>
+  )
+}
