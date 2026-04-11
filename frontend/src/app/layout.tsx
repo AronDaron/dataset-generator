@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Generator Datasetów",
-  description: "No-code generator syntetycznych datasetów LLM",
+  title: "Dataset Generator",
+  description: "No-code synthetic LLM dataset generator",
 };
 
 export default function RootLayout({
@@ -24,7 +24,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="pl"
+      lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
     >
       <body className="min-h-full flex flex-col">{children}</body>

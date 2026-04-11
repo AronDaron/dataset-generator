@@ -40,7 +40,7 @@ export function CategoryCard({
             value={category.name}
             onChange={(e) => onUpdate(category.id, { name: e.target.value })}
             maxLength={100}
-            placeholder="Nazwa kategorii"
+            placeholder="Category name"
             className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-medium outline-none transition-colors placeholder:text-white/25 focus-visible:border-primary/50 focus-visible:bg-white/8 focus-visible:ring-2 focus-visible:ring-primary/20"
           />
           {canRemove && (
@@ -48,7 +48,7 @@ export function CategoryCard({
               variant="ghost"
               size="icon"
               onClick={() => onRemove(category.id)}
-              title="Usuń kategorię"
+              title="Delete category"
               className="text-muted-foreground hover:text-destructive shrink-0"
             >
               <Trash2 className="size-4" />
@@ -62,7 +62,7 @@ export function CategoryCard({
           onChange={(e) => onUpdate(category.id, { description: e.target.value })}
           maxLength={1000}
           rows={2}
-          placeholder="Opis kategorii (min. 10 znaków) — np. &quot;Pytania i odpowiedzi dotyczące programowania w TypeScript&quot;"
+          placeholder="Category description (min. 10 characters) — e.g. &quot;Q&amp;A about TypeScript programming&quot;"
           className="w-full resize-none rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none transition-colors text-foreground placeholder:text-white/25 focus-visible:border-primary/50 focus-visible:bg-white/8 focus-visible:ring-2 focus-visible:ring-primary/20"
         />
 
@@ -73,7 +73,7 @@ export function CategoryCard({
           min={1}
           max={maxProportion}
           step={1}
-          label="Udział"
+          label="Share"
           displayValue={`${category.proportion}%`}
         />
       </CardContent>

@@ -10,7 +10,7 @@ from typing import Any
 
 import aiosqlite
 
-from app.models.jobs import CategoryConfig, CategoryProgress, JobConfig, ProgressJson
+from app.models.jobs import CategoryConfig, CategoryProgress, JobConfig, JudgeStats, ProgressJson
 from app.services.export_service import export_job
 from app.services.openrouter_client import OpenRouterError, chat_completion
 from app.services.prompt_builder import (
@@ -197,12 +197,13 @@ async def _save_example(
     content: dict,
     fmt: str,
     tokens: int,
+    judge_score: int | None = None,
 ) -> None:
     now = _now_iso()
     await db.execute(
-        "INSERT INTO examples (id, job_id, content_json, format, tokens, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (str(uuid.uuid4()), job_id, json.dumps(content), fmt, tokens, now),
+        "INSERT INTO examples (id, job_id, content_json, format, tokens, created_at, judge_score) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (str(uuid.uuid4()), job_id, json.dumps(content), fmt, tokens, now, judge_score),
     )
     await db.commit()
 
@@ -274,6 +275,41 @@ async def _generate_outline(
     except ValueError:
         pass
     return []
+
+
+async def _judge_example(
+    content: dict,
+    fmt: str,
+    model: str,
+    api_key: str,
+) -> int | None:
+    """Call LLM judge to rate an example on 0-100 scale. Returns int or None on failure."""
+    judge_prompt = (
+        "You are an expert dataset quality evaluator. "
+        "Rate the following training example on a scale of 0-100 based on: "
+        "relevance, coherence, naturalness, and educational value. "
+        'Respond with ONLY a JSON object: {"score": <number>}'
+    )
+    messages = [
+        {"role": "system", "content": judge_prompt},
+        {"role": "user", "content": f"Example to evaluate:\n{json.dumps(content, ensure_ascii=False)}"},
+    ]
+    try:
+        response = await chat_completion(
+            api_key=api_key,
+            model=model,
+            messages=messages,
+            temperature=0.1,
+            max_tokens=100,
+        )
+        parsed = _parse_json_response(_extract_content(response))
+        score = parsed.get("score")
+        if isinstance(score, (int, float)) and 0 <= score <= 100:
+            return int(score)
+        return None
+    except Exception:
+        logger.warning("Judge call failed (non-fatal)", exc_info=True)
+        return None
 
 
 async def _generate_example(
@@ -368,9 +404,50 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
 
                 if result is not None:
                     content, tokens = result
-                    await _save_example(db, job_id, content, config.format, tokens)
-                    progress.categories[cat.name].completed += 1
-                    progress.completed += 1
+                    judge_score: int | None = None
+
+                    if config.judge_enabled:
+                        effective_judge_model = config.judge_model or config.model
+                        if progress.judge_stats is None:
+                            progress.judge_stats = JudgeStats()
+                        accepted = False
+                        MAX_JUDGE_RETRIES = 3
+
+                        for attempt in range(MAX_JUDGE_RETRIES):
+                            if is_cancelled(job_id):
+                                raise _CancelledError()
+                            progress.judge_stats.evaluated += 1
+                            score = await _judge_example(
+                                content, config.format, effective_judge_model, api_key
+                            )
+                            await asyncio.sleep(delay)
+
+                            if score is None:
+                                # Judge failed — accept anyway, don't block generation
+                                accepted = True
+                                progress.judge_stats.accepted += 1
+                                break
+                            if score >= config.judge_threshold:
+                                judge_score = score
+                                accepted = True
+                                progress.judge_stats.accepted += 1
+                                break
+                            # Score below threshold
+                            judge_score = score
+                            if attempt == MAX_JUDGE_RETRIES - 1:
+                                progress.judge_stats.rejected += 1
+
+                        if not accepted:
+                            progress.categories[cat.name].skipped += 1
+                            progress.skipped += 1
+                        else:
+                            await _save_example(db, job_id, content, config.format, tokens, judge_score)
+                            progress.categories[cat.name].completed += 1
+                            progress.completed += 1
+                    else:
+                        await _save_example(db, job_id, content, config.format, tokens)
+                        progress.categories[cat.name].completed += 1
+                        progress.completed += 1
                 else:
                     progress.categories[cat.name].skipped += 1
                     progress.skipped += 1

@@ -38,5 +38,9 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
     try:
         await db.execute("ALTER TABLE jobs ADD COLUMN progress_json TEXT")
     except Exception:
-        pass  # kolumna juz istnieje
+        pass  # column already exists
+    try:
+        await db.execute("ALTER TABLE examples ADD COLUMN judge_score INTEGER")
+    except Exception:
+        pass  # column already exists
     await db.commit()

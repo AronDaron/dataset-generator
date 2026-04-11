@@ -19,52 +19,52 @@ const PRESETS: Preset[] = [
   {
     name: 'Frontend',
     description:
-      'Pytania i odpowiedzi dotyczące programowania frontendowego: React, TypeScript, CSS, HTML i nowoczesne frameworki UI.',
+      'Q&A about frontend programming: React, TypeScript, CSS, HTML, and modern UI frameworks.',
   },
   {
     name: 'Backend',
     description:
-      'Zagadnienia z zakresu programowania backendowego: Node.js, Python, REST API, bazy danych i architektura serwisów.',
+      'Topics covering backend programming: Node.js, Python, REST APIs, databases, and service architecture.',
   },
   {
     name: 'Python',
     description:
-      'Przykłady kodu, pytania i wyjaśnienia dotyczące języka Python: składnia, biblioteki standardowe, wzorce i dobre praktyki.',
+      'Code examples, questions, and explanations about Python: syntax, standard libraries, patterns, and best practices.',
   },
   {
     name: 'TypeScript',
     description:
-      'Typowanie, interfejsy, generyki i zaawansowane funkcje TypeScript w kontekście nowoczesnego JavaScriptu.',
+      'Typing, interfaces, generics, and advanced TypeScript features in the context of modern JavaScript.',
   },
   {
     name: 'DevOps',
     description:
-      'Docker, CI/CD, Kubernetes, automatyzacja wdrożeń i zarządzanie infrastrukturą chmurową.',
+      'Docker, CI/CD, Kubernetes, deployment automation, and cloud infrastructure management.',
   },
   {
     name: 'SQL',
     description:
-      'Zapytania SQL, projektowanie schematów, optymalizacja, transakcje i modelowanie danych relacyjnych i nierelacyjnych.',
+      'SQL queries, schema design, optimization, transactions, and relational and non-relational data modeling.',
   },
   {
     name: 'Machine Learning',
     description:
-      'Koncepcje uczenia maszynowego, fine-tuning modeli, preprocessing danych i praktyczne zastosowania ML.',
+      'Machine learning concepts, model fine-tuning, data preprocessing, and practical ML applications.',
   },
   {
-    name: 'Algorytmy',
+    name: 'Algorithms',
     description:
-      'Struktury danych, algorytmy sortowania i wyszukiwania, złożoność obliczeniowa i rozwiązywanie problemów.',
+      'Data structures, sorting and search algorithms, computational complexity, and problem-solving.',
   },
   {
-    name: 'Bezpieczeństwo',
+    name: 'Security',
     description:
-      'Web security, OWASP Top 10, autoryzacja, uwierzytelnianie i bezpieczne praktyki kodowania.',
+      'Web security, OWASP Top 10, authorization, authentication, and secure coding practices.',
   },
   {
     name: 'System Design',
     description:
-      'Projektowanie skalowalnych systemów, wzorce architektoniczne, microservices i distributed systems.',
+      'Designing scalable systems, architectural patterns, microservices, and distributed systems.',
   },
 ]
 
@@ -131,16 +131,16 @@ export function CategoryList({ categories, onChange }: CategoryListProps) {
     <div className="space-y-5">
       {/* Header */}
       <div>
-        <h2 className="text-base font-semibold">Kategorie datasetu</h2>
+        <h2 className="text-base font-semibold">Dataset categories</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Wybierz gotowe kategorie lub dodaj własną. Suma proporcji = 100%.
+          Select preset categories or add a custom one. Proportions must sum to 100%.
         </p>
       </div>
 
       {/* Preset chips */}
       <div className="space-y-2">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Gotowe kategorie
+          Preset categories
         </p>
         <div className="flex flex-wrap gap-2">
           {PRESETS.map((preset) => {
@@ -178,11 +178,11 @@ export function CategoryList({ categories, onChange }: CategoryListProps) {
             ].join(' ')}
           >
             <Plus className="size-3.5" />
-            Własna
+            Custom
           </button>
         </div>
         {isFull && (
-          <p className="text-xs text-muted-foreground">Maksymalnie 10 kategorii.</p>
+          <p className="text-xs text-muted-foreground">Maximum 10 categories.</p>
         )}
       </div>
 
@@ -191,7 +191,7 @@ export function CategoryList({ categories, onChange }: CategoryListProps) {
         <div className="space-y-4">
           <div className="flex items-center gap-3">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Aktywne ({categories.length}/10)
+              Active ({categories.length}/10)
             </p>
             {/* Proportion bar */}
             <div className="flex h-1.5 flex-1 overflow-hidden rounded-full">
@@ -200,7 +200,7 @@ export function CategoryList({ categories, onChange }: CategoryListProps) {
                   key={cat.id}
                   className={CATEGORY_COLORS[i % CATEGORY_COLORS.length]}
                   style={{ width: `${cat.proportion}%` }}
-                  title={`${cat.name || 'Kategoria'}: ${cat.proportion}%`}
+                  title={`${cat.name || 'Category'}: ${cat.proportion}%`}
                 />
               ))}
             </div>
@@ -225,7 +225,7 @@ export function CategoryList({ categories, onChange }: CategoryListProps) {
 
       {categories.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
-          Kliknij kategorię powyżej, aby zacząć budować dataset.
+          Click a category above to start building your dataset.
         </div>
       )}
     </div>

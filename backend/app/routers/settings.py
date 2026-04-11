@@ -9,12 +9,18 @@ from app.database import get_db
 
 router = APIRouter()
 
-CONFIG_KEYS = ["delay_between_requests", "retry_count", "retry_cooldown", "default_model"]
+CONFIG_KEYS = [
+    "delay_between_requests", "retry_count", "retry_cooldown", "default_model",
+    "judge_enabled", "judge_model", "judge_threshold",
+]
 CONFIG_DEFAULTS = {
     "delay_between_requests": "2.0",
     "retry_count": "3",
     "retry_cooldown": "15",
     "default_model": "openai/gpt-3.5-turbo",
+    "judge_enabled": "false",
+    "judge_model": "",
+    "judge_threshold": "80",
 }
 
 
@@ -32,6 +38,9 @@ class GlobalConfig(BaseModel):
     retry_count: int = Field(default=3, ge=1, le=10)
     retry_cooldown: int = Field(default=15, ge=1, le=120)
     default_model: str = Field(default="openai/gpt-3.5-turbo")
+    judge_enabled: bool = False
+    judge_model: str = Field(default="")
+    judge_threshold: int = Field(default=80, ge=0, le=100)
 
 
 def _now_iso() -> str:
@@ -87,6 +96,9 @@ async def get_config(db: aiosqlite.Connection = Depends(get_db)) -> GlobalConfig
         retry_count=int(values["retry_count"]),
         retry_cooldown=int(values["retry_cooldown"]),
         default_model=values["default_model"],
+        judge_enabled=values["judge_enabled"].lower() == "true",
+        judge_model=values["judge_model"],
+        judge_threshold=int(values["judge_threshold"]),
     )
 
 
@@ -100,6 +112,9 @@ async def update_config(
         "retry_count": str(body.retry_count),
         "retry_cooldown": str(body.retry_cooldown),
         "default_model": body.default_model,
+        "judge_enabled": "true" if body.judge_enabled else "false",
+        "judge_model": body.judge_model,
+        "judge_threshold": str(body.judge_threshold),
     }
     now = _now_iso()
     for key, value in updates.items():

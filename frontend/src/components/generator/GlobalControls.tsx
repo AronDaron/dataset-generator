@@ -22,12 +22,12 @@ export function GlobalControls({
 }: GlobalControlsProps) {
   return (
     <div className="space-y-3">
-      <h2 className="text-base font-semibold">Parametry generowania</h2>
+      <h2 className="text-base font-semibold">Generation parameters</h2>
 
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground">
-            Różnorodność odpowiedzi
+            Response diversity
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -39,7 +39,7 @@ export function GlobalControls({
             step={0.05}
             label="Temperatura"
             displayValue={temperature.toFixed(2)}
-            sublabel="Zbliżone do założeń ↔ Różnorodne"
+            sublabel="Closer to instructions ↔ More diverse"
           />
         </CardContent>
       </Card>
@@ -47,7 +47,7 @@ export function GlobalControls({
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground">
-            Długość kontekstu (max tokenów na przykład)
+            Context length (max tokens per example)
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -57,8 +57,8 @@ export function GlobalControls({
             min={512}
             max={8192}
             step={128}
-            label="Max tokenów"
-            displayValue={`${maxTokens.toLocaleString('pl-PL')} tokenów`}
+            label="Max tokens"
+            displayValue={`${maxTokens.toLocaleString('en-US')} tokens`}
           />
         </CardContent>
       </Card>
@@ -66,7 +66,7 @@ export function GlobalControls({
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground">
-            Rozmiar datasetu
+            Dataset size
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -76,8 +76,8 @@ export function GlobalControls({
             min={10}
             max={10000}
             step={10}
-            label="Liczba przykładów"
-            displayValue={totalExamples.toLocaleString('pl-PL')}
+            label="Number of examples"
+            displayValue={totalExamples.toLocaleString('en-US')}
           />
         </CardContent>
       </Card>

@@ -23,7 +23,7 @@ export function SelectField({
   value,
   onChange,
   options,
-  placeholder = 'Wybierz...',
+  placeholder = 'Select...',
   isLoading = false,
   disabled = false,
   className,
@@ -47,7 +47,7 @@ export function SelectField({
         )}
       >
         <span className={cn('truncate', !value && 'text-muted-foreground')}>
-          {isLoading ? 'Ładowanie modeli...' : selectedLabel}
+          {isLoading ? 'Loading models...' : selectedLabel}
         </span>
         <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
       </Select.Trigger>
@@ -79,7 +79,7 @@ export function SelectField({
               ))}
               {options.length === 0 && !isLoading && (
                 <div className="px-2 py-4 text-center text-sm text-muted-foreground">
-                  Brak opcji
+                  No options
                 </div>
               )}
             </Select.List>

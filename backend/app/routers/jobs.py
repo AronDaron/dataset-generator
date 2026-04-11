@@ -218,7 +218,7 @@ async def _stream_job_progress(
             job_row = await cursor.fetchone()
 
         async with await db.execute(
-            "SELECT id, job_id, content_json, format, tokens, created_at "
+            "SELECT id, job_id, content_json, format, tokens, created_at, judge_score "
             "FROM examples WHERE job_id = ? ORDER BY created_at DESC LIMIT 5",
             (job_id,),
         ) as cursor:
@@ -234,6 +234,7 @@ async def _stream_job_progress(
                 "format": r["format"],
                 "tokens": r["tokens"],
                 "created_at": r["created_at"],
+                "judge_score": r["judge_score"],
             }
             for r in ex_rows
         ]
@@ -311,7 +312,7 @@ async def list_examples(
 ) -> list[ExampleResponse]:
     """Paginated list of examples for a job, newest first."""
     async with await db.execute(
-        "SELECT id, job_id, content_json, format, tokens, created_at "
+        "SELECT id, job_id, content_json, format, tokens, created_at, judge_score "
         "FROM examples WHERE job_id = ? "
         "ORDER BY created_at DESC LIMIT ? OFFSET ?",
         (job_id, limit, offset),
@@ -325,6 +326,7 @@ async def list_examples(
             format=row["format"],
             tokens=row["tokens"],
             created_at=row["created_at"],
+            judge_score=row["judge_score"],
         )
         for row in rows
     ]

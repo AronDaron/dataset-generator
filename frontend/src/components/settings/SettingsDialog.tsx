@@ -28,6 +28,9 @@ export function SettingsDialog({
   const [retryCount, setRetryCount] = useState(3)
   const [retryCooldown, setRetryCooldown] = useState(15) // preserved, not exposed in UI
   const [localModel, setLocalModel] = useState(model)
+  const [judgeEnabled, setJudgeEnabled] = useState(false)
+  const [judgeModel, setJudgeModel] = useState('')
+  const [judgeThreshold, setJudgeThreshold] = useState(80)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -46,6 +49,9 @@ export function SettingsDialog({
         setDelay(config.delay_between_requests)
         setRetryCount(config.retry_count)
         setRetryCooldown(config.retry_cooldown)
+        setJudgeEnabled(config.judge_enabled)
+        setJudgeModel(config.judge_model)
+        setJudgeThreshold(config.judge_threshold)
         if (config.default_model && !model) {
           setLocalModel(config.default_model)
         }
@@ -65,6 +71,9 @@ export function SettingsDialog({
         retry_count: retryCount,
         retry_cooldown: retryCooldown,
         default_model: localModel,
+        judge_enabled: judgeEnabled,
+        judge_model: judgeModel,
+        judge_threshold: judgeThreshold,
       })
       onModelChange(localModel)
       setSaveSuccess(true)
@@ -73,7 +82,7 @@ export function SettingsDialog({
         onClose()
       }, 800)
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Błąd zapisu ustawień')
+      setSaveError(err instanceof Error ? err.message : 'Failed to save settings')
     } finally {
       setSaving(false)
     }
@@ -96,7 +105,7 @@ export function SettingsDialog({
           {/* Header */}
           <div className="mb-5 flex items-center justify-between">
             <Dialog.Title className="text-lg font-semibold">
-              Ustawienia
+              Settings
             </Dialog.Title>
             <Dialog.Close
               render={
@@ -125,6 +134,12 @@ export function SettingsDialog({
               onDelayChange={setDelay}
               onRetryChange={setRetryCount}
               hasApiKey={hasKey}
+              judgeEnabled={judgeEnabled}
+              judgeModel={judgeModel}
+              judgeThreshold={judgeThreshold}
+              onJudgeEnabledChange={setJudgeEnabled}
+              onJudgeModelChange={setJudgeModel}
+              onJudgeThresholdChange={setJudgeThreshold}
             />
           </div>
 
@@ -134,13 +149,13 @@ export function SettingsDialog({
               <p className="mr-auto text-sm text-destructive">{saveError}</p>
             )}
             {saveSuccess && (
-              <p className="mr-auto text-sm text-green-600">Zapisano!</p>
+              <p className="mr-auto text-sm text-green-600">Saved!</p>
             )}
             <Button variant="ghost" onClick={onClose} disabled={saving}>
-              Anuluj
+              Cancel
             </Button>
             <Button onClick={handleSave} disabled={saving}>
-              {saving ? 'Zapisuję...' : 'Zapisz ustawienia'}
+              {saving ? 'Saving...' : 'Save settings'}
             </Button>
           </div>
         </Dialog.Popup>

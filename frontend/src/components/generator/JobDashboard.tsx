@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { CheckCircle, AlertCircle, XCircle, FolderOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 import { CATEGORY_COLORS } from './CategoryList'
 import {
   cancelJob,
@@ -13,21 +14,22 @@ import {
 } from '@/lib/api'
 
 const STATUS_LABELS: Record<string, string> = {
-  pending:    'Oczekuje',
-  running:    'Generowanie',
-  cancelling: 'Anulowanie…',
-  cancelled:  'Anulowano',
-  completed:  'Ukończono',
-  failed:     'Błąd',
+  pending:    'Pending',
+  running:    'Running',
+  cancelling: 'Cancelling…',
+  cancelled:  'Cancelled',
+  completed:  'Completed',
+  failed:     'Failed',
 }
 
 const STAGE_LABELS: Record<string, string> = {
-  pending:              'Oczekuje na start',
-  generating_topics:    'Generowanie tematów',
-  generating_examples:  'Generowanie przykładów',
-  completed:            'Zakończono',
-  cancelled:            'Anulowano',
-  failed:               'Błąd generowania',
+  pending:              'Awaiting start',
+  generating_topics:    'Generating topics',
+  generating_examples:  'Generating examples',
+  judge_evaluating:     'Evaluating…',
+  completed:            'Completed',
+  cancelled:            'Cancelled',
+  failed:               'Generation error',
 }
 
 function statusColor(status: string): string {
@@ -61,15 +63,16 @@ function extractPreview(example: SSEExample): string {
   for (const v of Object.values(c)) {
     if (typeof v === 'string') return v.slice(0, 120)
   }
-  return '(brak podglądu)'
+  return '(no preview)'
 }
 
 interface JobDashboardProps {
   jobId: string
   onReset: () => void
+  judgeThreshold?: number
 }
 
-export function JobDashboard({ jobId, onReset }: JobDashboardProps) {
+export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboardProps) {
   const [payload, setPayload] = useState<SSEProgressPayload | null>(null)
   const [sseError, setSseError] = useState<string | null>(null)
   const [isCancelling, setIsCancelling] = useState(false)
@@ -95,7 +98,7 @@ export function JobDashboard({ jobId, onReset }: JobDashboardProps) {
     })
 
     es.onerror = () => {
-      setSseError('Błąd połączenia z backendem.')
+      setSseError('Backend connection error.')
       es.close()
     }
 
@@ -140,7 +143,7 @@ export function JobDashboard({ jobId, onReset }: JobDashboardProps) {
     <div className="space-y-4">
       {/* Header */}
       <div>
-        <h2 className="text-base font-semibold">Dashboard postępu</h2>
+        <h2 className="text-base font-semibold">Progress dashboard</h2>
         <p className="mt-0.5 font-mono text-xs text-muted-foreground">{jobId}</p>
       </div>
 
@@ -178,7 +181,7 @@ export function JobDashboard({ jobId, onReset }: JobDashboardProps) {
           </div>
           {progress?.current_category && isRunning && (
             <p className="mt-1 text-xs text-muted-foreground">
-              Kategoria:{' '}
+              Category:{' '}
               <span className="font-medium text-foreground">{progress.current_category}</span>
             </p>
           )}
@@ -189,7 +192,7 @@ export function JobDashboard({ jobId, onReset }: JobDashboardProps) {
       <Card>
         <CardContent className="space-y-2 py-3">
           <div className="flex items-center justify-between text-sm">
-            <span className="font-medium">Łączny postęp</span>
+            <span className="font-medium">Total progress</span>
             <span className="tabular-nums text-muted-foreground">
               {progress?.completed ?? 0}&nbsp;/&nbsp;{progress?.total_examples ?? '—'}
             </span>
@@ -200,15 +203,31 @@ export function JobDashboard({ jobId, onReset }: JobDashboardProps) {
               style={{ width: `${globalPct}%` }}
             />
           </div>
-          <div className="flex gap-4 text-xs text-muted-foreground">
+          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
             <span>
-              Wygenerowano:{' '}
+              Generated:{' '}
               <span className="font-medium text-foreground">{progress?.completed ?? 0}</span>
             </span>
             <span>
-              Pominięto:{' '}
+              Skipped:{' '}
               <span className="font-medium text-foreground">{progress?.skipped ?? 0}</span>
             </span>
+            {progress?.judge_stats && (
+              <>
+                <span>
+                  Evaluated:{' '}
+                  <span className="font-medium text-foreground">{progress.judge_stats.evaluated}</span>
+                </span>
+                <span>
+                  Accepted:{' '}
+                  <span className="font-medium text-foreground">{progress.judge_stats.accepted}</span>
+                </span>
+                <span>
+                  Rejected:{' '}
+                  <span className="font-medium text-foreground">{progress.judge_stats.rejected}</span>
+                </span>
+              </>
+            )}
             <span className="ml-auto tabular-nums">{globalPct}%</span>
           </div>
         </CardContent>
@@ -219,7 +238,7 @@ export function JobDashboard({ jobId, onReset }: JobDashboardProps) {
         <Card>
           <CardContent className="space-y-3 py-3">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Postęp kategorii
+              Category progress
             </p>
             {categoryEntries.map(([name, cat], i) => {
               const catPct =
@@ -259,7 +278,7 @@ export function JobDashboard({ jobId, onReset }: JobDashboardProps) {
         <Card>
           <CardContent className="space-y-2 py-3">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Ostatnie przykłady
+              Recent examples
             </p>
             <div className="space-y-1.5">
               {examples.map((ex) => (
@@ -271,9 +290,23 @@ export function JobDashboard({ jobId, onReset }: JobDashboardProps) {
                     <span className="font-mono text-xs uppercase text-muted-foreground">
                       {ex.format}
                     </span>
-                    <span className="tabular-nums text-xs text-muted-foreground">
-                      {ex.tokens} tok.
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {ex.judge_score != null && (
+                        <span
+                          className={cn(
+                            'rounded px-1.5 py-0.5 font-mono text-xs font-medium',
+                            ex.judge_score >= judgeThreshold
+                              ? 'bg-green-500/15 text-green-400'
+                              : 'bg-amber-500/15 text-amber-400',
+                          )}
+                        >
+                          {ex.judge_score}
+                        </span>
+                      )}
+                      <span className="tabular-nums text-xs text-muted-foreground">
+                        {ex.tokens} tok.
+                      </span>
+                    </div>
                   </div>
                   <p className="line-clamp-2 break-words text-xs text-foreground">
                     {extractPreview(ex)}
@@ -288,7 +321,7 @@ export function JobDashboard({ jobId, onReset }: JobDashboardProps) {
       {/* Loading state */}
       {!payload && !sseError && (
         <div className="rounded-lg border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
-          Ładowanie danych…
+          Loading data…
         </div>
       )}
 
@@ -302,19 +335,19 @@ export function JobDashboard({ jobId, onReset }: JobDashboardProps) {
             disabled={isOpeningFolder}
           >
             <FolderOpen className="size-4" />
-            {isOpeningFolder ? 'Otwieranie…' : 'Otwórz folder z datasetami'}
+            {isOpeningFolder ? 'Opening…' : 'Open datasets folder'}
           </Button>
         )}
 
         {isTerminal && (
           <Button variant="outline" size="lg" className="w-full" onClick={onReset}>
-            Nowe generowanie
+            New generation
           </Button>
         )}
 
         {sseError && (
           <Button variant="outline" size="lg" className="w-full" onClick={onReset}>
-            Powrót
+            Back
           </Button>
         )}
 
@@ -326,13 +359,13 @@ export function JobDashboard({ jobId, onReset }: JobDashboardProps) {
             onClick={handleCancel}
             disabled={isCancelling}
           >
-            {isCancelling ? 'Anulowanie…' : 'Anuluj generowanie'}
+            {isCancelling ? 'Cancelling…' : 'Cancel generation'}
           </Button>
         )}
 
         {status === 'cancelling' && (
           <Button variant="destructive" size="lg" className="w-full" disabled>
-            Anulowanie…
+            Cancelling…
           </Button>
         )}
       </div>

@@ -19,6 +19,9 @@ class JobConfig(BaseModel):
     model: str = Field(..., min_length=1)
     format: Literal["sharegpt", "alpaca", "chatml"]
     delay_between_requests: Optional[float] = Field(default=None, ge=0.0, le=60.0)
+    judge_enabled: bool = False
+    judge_model: str = ""
+    judge_threshold: int = Field(default=80, ge=0, le=100)
 
     @model_validator(mode="after")
     def proportions_sum_to_one(self) -> "JobConfig":
@@ -32,6 +35,12 @@ class CategoryProgress(BaseModel):
     target: int
     completed: int
     skipped: int
+
+
+class JudgeStats(BaseModel):
+    evaluated: int = 0
+    accepted: int = 0
+    rejected: int = 0
 
 
 class ProgressJson(BaseModel):
@@ -48,6 +57,7 @@ class ProgressJson(BaseModel):
     ]
     current_category: Optional[str] = None
     categories: Dict[str, CategoryProgress]
+    judge_stats: Optional[JudgeStats] = None
 
 
 class JobResponse(BaseModel):
@@ -77,3 +87,4 @@ class ExampleResponse(BaseModel):
     format: str
     tokens: int
     created_at: str
+    judge_score: Optional[int] = None

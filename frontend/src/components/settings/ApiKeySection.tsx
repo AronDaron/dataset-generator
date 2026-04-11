@@ -34,7 +34,7 @@ export function ApiKeySection({
       setInputKey('')
       setShowInput(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Błąd zapisu klucza')
+      setError(err instanceof Error ? err.message : 'Failed to save key')
     } finally {
       setSaving(false)
     }
@@ -48,7 +48,7 @@ export function ApiKeySection({
       onKeyChange(false, null)
       setShowInput(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Błąd usuwania klucza')
+      setError(err instanceof Error ? err.message : 'Failed to delete key')
     } finally {
       setDeleting(false)
     }
@@ -59,7 +59,7 @@ export function ApiKeySection({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Key className="size-4" />
-          Klucz API OpenRouter
+          OpenRouter API Key
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -73,7 +73,7 @@ export function ApiKeySection({
               size="sm"
               onClick={() => setShowInput(true)}
             >
-              Zmień
+              Change
             </Button>
             <Button
               variant="destructive"
@@ -82,7 +82,7 @@ export function ApiKeySection({
               disabled={deleting}
             >
               <Trash2 className="size-3.5" />
-              {deleting ? 'Usuwanie...' : 'Usuń'}
+              {deleting ? 'Deleting...' : 'Delete'}
             </Button>
           </div>
         ) : (
@@ -96,11 +96,11 @@ export function ApiKeySection({
               className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
             />
             <Button onClick={handleSave} disabled={saving || !inputKey.trim()} size="sm">
-              {saving ? 'Zapisuję...' : 'Zapisz'}
+              {saving ? 'Saving...' : 'Save'}
             </Button>
             {hasKey && (
               <Button variant="ghost" size="sm" onClick={() => setShowInput(false)}>
-                Anuluj
+                Cancel
               </Button>
             )}
           </div>
@@ -116,9 +116,9 @@ export function ApiKeySection({
         <div className="flex items-start gap-1.5 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
           <AlertCircle className="size-3.5 mt-0.5 shrink-0" />
           <span>
-            Klucz API jest przechowywany lokalnie na Twoim urządzeniu i nigdy
-            nie opuszcza Twojego komputera. Ponosisz odpowiedzialność za
-            przestrzeganie regulaminu dostawców modeli na OpenRouter.
+            The API key is stored locally on your device and never leaves your
+            computer. You are responsible for complying with the terms of
+            service of model providers on OpenRouter.
           </span>
         </div>
       </CardContent>

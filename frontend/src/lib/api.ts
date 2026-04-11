@@ -11,6 +11,9 @@ export interface GlobalConfig {
   retry_count: number
   retry_cooldown: number
   default_model: string
+  judge_enabled: boolean
+  judge_model: string
+  judge_threshold: number
 }
 
 export interface ModelOption {
@@ -32,6 +35,9 @@ export interface JobConfig {
   model: string
   format: 'sharegpt' | 'alpaca' | 'chatml'
   delay_between_requests?: number
+  judge_enabled?: boolean
+  judge_model?: string
+  judge_threshold?: number
 }
 
 export interface JobCreatedResponse {
@@ -103,6 +109,12 @@ export interface CategoryProgress {
   skipped: number
 }
 
+export interface JudgeStats {
+  evaluated: number
+  accepted: number
+  rejected: number
+}
+
 export interface ProgressJson {
   total_examples: number
   completed: number
@@ -110,6 +122,7 @@ export interface ProgressJson {
   current_stage: 'pending' | 'generating_topics' | 'generating_examples' | 'completed' | 'cancelled' | 'failed'
   current_category: string | null
   categories: Record<string, CategoryProgress>
+  judge_stats: JudgeStats | null
 }
 
 export interface SSEExample {
@@ -119,6 +132,7 @@ export interface SSEExample {
   format: 'sharegpt' | 'alpaca' | 'chatml'
   tokens: number
   created_at: string
+  judge_score: number | null
 }
 
 export interface SSEProgressPayload {

@@ -9,7 +9,7 @@ const FORMATS: { value: ExportFormat; label: string; description: string }[] =
     {
       value: 'sharegpt',
       label: 'ShareGPT',
-      description: 'Wieloturowe rozmowy human/gpt',
+      description: 'Multi-turn human/gpt conversations',
     },
     {
       value: 'alpaca',
@@ -19,7 +19,7 @@ const FORMATS: { value: ExportFormat; label: string; description: string }[] =
     {
       value: 'chatml',
       label: 'ChatML',
-      description: 'Wieloturowe user/assistant',
+      description: 'Multi-turn user/assistant',
     },
   ]
 
@@ -31,7 +31,7 @@ interface FormatSelectorProps {
 export function FormatSelector({ value, onChange }: FormatSelectorProps) {
   return (
     <div className="space-y-2">
-      <h2 className="text-base font-semibold">Format eksportu</h2>
+      <h2 className="text-base font-semibold">Export format</h2>
       <div className="flex gap-2 flex-wrap">
         {FORMATS.map((f) => (
           <button
