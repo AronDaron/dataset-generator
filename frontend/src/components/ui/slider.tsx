@@ -45,15 +45,17 @@ export function SliderField({
         className="relative flex w-full touch-none select-none items-center py-1"
       >
         <Slider.Control className="relative flex w-full items-center">
-          <Slider.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-muted">
-            <Slider.Indicator className="absolute h-full bg-primary rounded-full" />
+          <Slider.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-white/8 ring-1 ring-white/5">
+            <Slider.Indicator className="absolute h-full rounded-full bg-gradient-to-r from-primary/80 to-primary" />
           </Slider.Track>
           <Slider.Thumb
             className={cn(
-              'block size-4 shrink-0 rounded-full border-2 border-background bg-primary shadow-sm',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+              'block size-4 shrink-0 rounded-full bg-white',
+              'shadow-[0_0_7px_oklch(0.62_0.20_228/0.5),0_2px_4px_oklch(0_0_0/0.4)]',
+              'ring-2 ring-primary/28',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
               'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-              'data-[dragging]:cursor-grabbing cursor-grab',
+              'data-[dragging]:cursor-grabbing data-[dragging]:scale-110 cursor-grab transition-transform',
             )}
           />
         </Slider.Control>

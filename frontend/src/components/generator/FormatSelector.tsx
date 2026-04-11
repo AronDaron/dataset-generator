@@ -37,10 +37,10 @@ export function FormatSelector({ value, onChange }: FormatSelectorProps) {
           <button
             key={f.value}
             onClick={() => onChange(f.value)}
-            className={`flex-1 min-w-[120px] rounded-lg border px-4 py-3 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+            className={`flex-1 min-w-[120px] rounded-lg border px-4 py-3 text-left transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
               value === f.value
-                ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-border bg-background hover:bg-muted'
+                ? 'border-primary/42 bg-primary/55 text-primary-foreground shadow-md shadow-primary/14 backdrop-blur-md'
+                : 'border-white/8 bg-white/5 hover:bg-white/10 backdrop-blur-sm'
             }`}
           >
             <div className="text-sm font-medium">{f.label}</div>

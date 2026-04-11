@@ -152,12 +152,12 @@ export function CategoryList({ categories, onChange }: CategoryListProps) {
                 disabled={!active && isFull}
                 title={preset.description}
                 className={[
-                  'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                  'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-all backdrop-blur-sm',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
                   'disabled:cursor-not-allowed disabled:opacity-40',
                   active
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border bg-background text-foreground hover:bg-muted',
+                    ? 'border-primary/35 bg-primary/10 text-primary shadow-[0_0_8px_oklch(0.62_0.20_228/0.18)] ring-1 ring-primary/14'
+                    : 'border-white/10 bg-white/5 text-foreground/70 hover:bg-white/10 hover:text-foreground hover:border-white/20',
                 ].join(' ')}
               >
                 {active && <Check className="size-3.5" />}
@@ -171,10 +171,10 @@ export function CategoryList({ categories, onChange }: CategoryListProps) {
             onClick={handleAddCustom}
             disabled={isFull}
             className={[
-              'inline-flex items-center gap-1.5 rounded-full border border-dashed px-3 py-1.5 text-sm font-medium transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+              'inline-flex items-center gap-1.5 rounded-full border border-dashed px-3 py-1.5 text-sm font-medium transition-all backdrop-blur-sm',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
               'disabled:cursor-not-allowed disabled:opacity-40',
-              'border-border text-muted-foreground hover:border-primary hover:text-primary',
+              'border-white/15 text-white/40 hover:border-primary/50 hover:text-primary hover:bg-primary/10',
             ].join(' ')}
           >
             <Plus className="size-3.5" />

@@ -82,9 +82,9 @@ export default function GeneratorPage() {
   }
 
   return (
-    <main className="min-h-screen bg-background">
+    <main className="min-h-screen bg-transparent">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="sticky top-0 z-10 glass-header">
         <div className="mx-auto flex h-14 max-w-[1800px] items-center justify-between px-8">
           <div className="flex items-center gap-2">
             <Rocket className="size-5 text-primary" />
