@@ -274,12 +274,19 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
       )}
 
       {/* Live feed */}
-      {examples.length > 0 && (
+      {(examples.length > 0 || isRunning) && (
         <Card>
           <CardContent className="space-y-2 py-3">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Recent examples
             </p>
+            {examples.length === 0 && isRunning && (
+              <p className="text-xs text-muted-foreground italic">
+                {progress?.current_stage === 'generating_topics'
+                  ? 'Generating topics — examples will appear here soon…'
+                  : 'Waiting for first example…'}
+              </p>
+            )}
             <div className="space-y-1.5">
               {examples.map((ex) => (
                 <div

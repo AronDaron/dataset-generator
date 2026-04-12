@@ -91,7 +91,7 @@ async def create_job(
     """Create and immediately start a generation job."""
     api_key = await _get_api_key(db)
 
-    # Resolve delay from global settings if not provided in body
+    # Resolve delay, retry_count, retry_cooldown from global settings if not provided in body
     resolved_delay = body.delay_between_requests
     if resolved_delay is None:
         async with await db.execute(
@@ -100,7 +100,23 @@ async def create_job(
             row = await cursor.fetchone()
         resolved_delay = float(row["value"]) if row else 2.0
 
-    config = body.model_copy(update={"delay_between_requests": resolved_delay})
+    async with await db.execute(
+        "SELECT value FROM settings WHERE key = 'retry_count'"
+    ) as cursor:
+        row = await cursor.fetchone()
+    resolved_retry_count = int(row["value"]) if row else 3
+
+    async with await db.execute(
+        "SELECT value FROM settings WHERE key = 'retry_cooldown'"
+    ) as cursor:
+        row = await cursor.fetchone()
+    resolved_retry_cooldown = int(row["value"]) if row else 15
+
+    config = body.model_copy(update={
+        "delay_between_requests": resolved_delay,
+        "retry_count": resolved_retry_count,
+        "retry_cooldown": resolved_retry_cooldown,
+    })
 
     job_id = str(uuid.uuid4())
     now = _now_iso()
@@ -199,6 +215,7 @@ async def _stream_job_progress(
     """Async generator yielding SSE messages for the given job."""
     POLL_INTERVAL = 0.75
     KEEPALIVE_EVERY_TICKS = int(20 / POLL_INTERVAL)  # ~20 s
+    MAX_STREAM_TICKS = int(7200 / POLL_INTERVAL)      # 2h hard cap — protects against zombie jobs
     TERMINAL_STATES = {"completed", "cancelled", "failed"}
 
     # Validate job exists before opening the stream
@@ -253,9 +270,11 @@ async def _stream_job_progress(
             return
 
         tick += 1
-        if tick >= KEEPALIVE_EVERY_TICKS:
+        if tick >= MAX_STREAM_TICKS:
+            yield "event: error\ndata: " + json.dumps({"detail": "Stream timeout"}) + "\n\n"
+            return
+        if tick % KEEPALIVE_EVERY_TICKS == 0:
             yield ": keepalive\n\n"
-            tick = 0
 
         await asyncio.sleep(POLL_INTERVAL)
 

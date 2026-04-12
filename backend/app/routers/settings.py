@@ -12,6 +12,7 @@ router = APIRouter()
 CONFIG_KEYS = [
     "delay_between_requests", "retry_count", "retry_cooldown", "default_model",
     "judge_enabled", "judge_model", "judge_threshold",
+    "conversation_turns", "judge_criteria",
 ]
 CONFIG_DEFAULTS = {
     "delay_between_requests": "2.0",
@@ -21,6 +22,8 @@ CONFIG_DEFAULTS = {
     "judge_enabled": "false",
     "judge_model": "",
     "judge_threshold": "80",
+    "conversation_turns": "2",
+    "judge_criteria": "relevance, coherence, naturalness, and educational value",
 }
 
 
@@ -41,6 +44,8 @@ class GlobalConfig(BaseModel):
     judge_enabled: bool = False
     judge_model: str = Field(default="")
     judge_threshold: int = Field(default=80, ge=0, le=100)
+    conversation_turns: int = Field(default=2, ge=1, le=5)
+    judge_criteria: str = Field(default="relevance, coherence, naturalness, and educational value")
 
 
 def _now_iso() -> str:
@@ -99,6 +104,8 @@ async def get_config(db: aiosqlite.Connection = Depends(get_db)) -> GlobalConfig
         judge_enabled=values["judge_enabled"].lower() == "true",
         judge_model=values["judge_model"],
         judge_threshold=int(values["judge_threshold"]),
+        conversation_turns=int(values["conversation_turns"]),
+        judge_criteria=values["judge_criteria"],
     )
 
 
@@ -115,6 +122,8 @@ async def update_config(
         "judge_enabled": "true" if body.judge_enabled else "false",
         "judge_model": body.judge_model,
         "judge_threshold": str(body.judge_threshold),
+        "conversation_turns": str(body.conversation_turns),
+        "judge_criteria": body.judge_criteria,
     }
     now = _now_iso()
     for key, value in updates.items():

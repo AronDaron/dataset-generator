@@ -37,10 +37,12 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await db.execute(stmt)
     try:
         await db.execute("ALTER TABLE jobs ADD COLUMN progress_json TEXT")
-    except Exception:
-        pass  # column already exists
+    except Exception as e:
+        if "duplicate column name" not in str(e).lower():
+            raise
     try:
         await db.execute("ALTER TABLE examples ADD COLUMN judge_score INTEGER")
-    except Exception:
-        pass  # column already exists
+    except Exception as e:
+        if "duplicate column name" not in str(e).lower():
+            raise
     await db.commit()

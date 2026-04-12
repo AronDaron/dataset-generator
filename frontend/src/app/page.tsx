@@ -32,6 +32,8 @@ export default function GeneratorPage() {
   const [judgeEnabled, setJudgeEnabled] = useState(false)
   const [judgeModel, setJudgeModel] = useState('')
   const [judgeThreshold, setJudgeThreshold] = useState(80)
+  const [conversationTurns, setConversationTurns] = useState(2)
+  const [judgeCriteria, setJudgeCriteria] = useState('relevance, coherence, naturalness, and educational value')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -44,6 +46,8 @@ export default function GeneratorPage() {
         setJudgeEnabled(config.judge_enabled)
         setJudgeModel(config.judge_model)
         setJudgeThreshold(config.judge_threshold)
+        setConversationTurns(config.conversation_turns)
+        setJudgeCriteria(config.judge_criteria)
         if (!keyStatus.has_key) setSettingsOpen(true)
       })
       .catch(() => setSettingsOpen(true))
@@ -81,6 +85,8 @@ export default function GeneratorPage() {
         judge_enabled: judgeEnabled,
         judge_model: judgeModel,
         judge_threshold: judgeThreshold,
+        conversation_turns: conversationTurns,
+        judge_criteria: judgeCriteria,
       })
       setCreatedJobId(result.id)
     } catch (err) {
@@ -137,12 +143,22 @@ export default function GeneratorPage() {
                 temperature={temperature}
                 maxTokens={maxTokens}
                 totalExamples={totalExamples}
+                conversationTurns={conversationTurns}
+                format={format}
                 onTemperatureChange={setTemperature}
                 onMaxTokensChange={setMaxTokens}
                 onTotalExamplesChange={setTotalExamples}
+                onConversationTurnsChange={setConversationTurns}
               />
 
-              <FormatSelector value={format} onChange={(f) => setFormat(f as ExportFormat)} />
+              <FormatSelector
+                value={format}
+                onChange={(f) => {
+                  const next = f as ExportFormat
+                  setFormat(next)
+                  if (next === 'alpaca') setConversationTurns(1)
+                }}
+              />
 
               {/* Submit */}
               <div className="space-y-3">
@@ -175,11 +191,13 @@ export default function GeneratorPage() {
         open={settingsOpen}
         onClose={() => {
           setSettingsOpen(false)
-          // Re-sync judge config from backend after settings saved
+          // Re-sync config from backend after settings saved
           getConfig().then((config) => {
             setJudgeEnabled(config.judge_enabled)
             setJudgeModel(config.judge_model)
             setJudgeThreshold(config.judge_threshold)
+            setConversationTurns(config.conversation_turns)
+            setJudgeCriteria(config.judge_criteria)
           }).catch(() => {/* non-fatal */})
         }}
         model={model}

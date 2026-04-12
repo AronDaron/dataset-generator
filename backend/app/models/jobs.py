@@ -19,15 +19,25 @@ class JobConfig(BaseModel):
     model: str = Field(..., min_length=1)
     format: Literal["sharegpt", "alpaca", "chatml"]
     delay_between_requests: Optional[float] = Field(default=None, ge=0.0, le=60.0)
+    retry_count: int = Field(default=3, ge=1, le=10)
+    retry_cooldown: int = Field(default=15, ge=1, le=120)
     judge_enabled: bool = False
     judge_model: str = ""
     judge_threshold: int = Field(default=80, ge=0, le=100)
+    conversation_turns: int = Field(default=2, ge=1, le=5)
+    judge_criteria: str = Field(default="relevance, coherence, naturalness, and educational value")
 
     @model_validator(mode="after")
     def proportions_sum_to_one(self) -> "JobConfig":
         total = sum(c.proportion for c in self.categories)
         if abs(total - 1.0) > 0.01:
             raise ValueError(f"Proportions must sum to 1.0, got {total:.4f}")
+        return self
+
+    @model_validator(mode="after")
+    def alpaca_forces_single_turn(self) -> "JobConfig":
+        if self.format == "alpaca":
+            self.conversation_turns = 1
         return self
 
 

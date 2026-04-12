@@ -1,12 +1,16 @@
 import asyncio
+import logging
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MAX_RETRIES = 3
 RETRY_COOLDOWN = 15  # seconds
 RETRYABLE_CODES = {429, 500}
+REQUEST_TIMEOUT = 480.0  # seconds — DeepSeek V3.2 at 11 tps × 4096 tokens ≈ 370s; 480s gives safe margin
 
 
 class OpenRouterError(Exception):
@@ -43,13 +47,33 @@ async def chat_completion(
         "max_tokens": max_tokens,
     }
     last_error: OpenRouterError | None = None
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
         for attempt in range(max_retries):
-            r = await client.post(
-                f"{OPENROUTER_BASE_URL}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
+            try:
+                r = await client.post(
+                    f"{OPENROUTER_BASE_URL}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+            except httpx.TimeoutException:
+                logger.warning(
+                    "OpenRouter request timed out after %.0fs (attempt %d/%d, model=%s)",
+                    REQUEST_TIMEOUT, attempt + 1, max_retries, model,
+                )
+                last_error = OpenRouterError(408, f"Request timed out after {REQUEST_TIMEOUT:.0f}s")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_cooldown)
+                continue
+            except httpx.NetworkError as exc:
+                logger.warning(
+                    "OpenRouter network error (attempt %d/%d, model=%s): %s",
+                    attempt + 1, max_retries, model, exc,
+                )
+                last_error = OpenRouterError(503, f"Network error: {exc}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_cooldown)
+                continue
+
             if r.status_code == 200:
                 return r.json()
             if r.status_code in RETRYABLE_CODES:
@@ -58,8 +82,13 @@ async def chat_completion(
                     await asyncio.sleep(retry_cooldown)
                 continue
             # Non-retryable error (401, 403, 422, etc.) — raise immediately
+            logger.error(
+                "OpenRouter non-retryable error %d (model=%s): %s",
+                r.status_code, model, r.text[:200],
+            )
             raise OpenRouterError(r.status_code, r.text)
-    raise last_error  # type: ignore[misc]
+    assert last_error is not None
+    raise last_error
 
 
 async def list_models(api_key: str) -> list[dict[str, Any]]:

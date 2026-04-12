@@ -14,6 +14,8 @@ export interface GlobalConfig {
   judge_enabled: boolean
   judge_model: string
   judge_threshold: number
+  conversation_turns: number
+  judge_criteria: string
 }
 
 export interface ModelOption {
@@ -38,6 +40,8 @@ export interface JobConfig {
   judge_enabled?: boolean
   judge_model?: string
   judge_threshold?: number
+  conversation_turns?: number
+  judge_criteria?: string
 }
 
 export interface JobCreatedResponse {

@@ -18,9 +18,11 @@ interface ConfigSectionProps {
   judgeEnabled: boolean
   judgeModel: string
   judgeThreshold: number
+  judgeCriteria: string
   onJudgeEnabledChange: (enabled: boolean) => void
   onJudgeModelChange: (model: string) => void
   onJudgeThresholdChange: (threshold: number) => void
+  onJudgeCriteriaChange: (criteria: string) => void
 }
 
 export function ConfigSection({
@@ -34,9 +36,11 @@ export function ConfigSection({
   judgeEnabled,
   judgeModel,
   judgeThreshold,
+  judgeCriteria,
   onJudgeEnabledChange,
   onJudgeModelChange,
   onJudgeThresholdChange,
+  onJudgeCriteriaChange,
 }: ConfigSectionProps) {
   const [models, setModels] = useState<SelectOption[]>([])
   const [loadingModels, setLoadingModels] = useState(false)
@@ -188,6 +192,20 @@ export function ConfigSection({
               label="Minimum quality score"
               displayValue={`${judgeThreshold}/100`}
             />
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Judge evaluation criteria</label>
+              <textarea
+                value={judgeCriteria}
+                onChange={(e) => onJudgeCriteriaChange(e.target.value)}
+                rows={3}
+                placeholder="relevance, coherence, naturalness, and educational value"
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+              <p className="text-xs text-muted-foreground">
+                Comma-separated list of criteria sent to the judge model
+              </p>
+            </div>
           </>
         )}
       </CardContent>

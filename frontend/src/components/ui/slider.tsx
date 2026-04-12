@@ -13,6 +13,7 @@ interface SliderFieldProps {
   sublabel?: string
   displayValue?: string
   className?: string
+  disabled?: boolean
 }
 
 export function SliderField({
@@ -25,6 +26,7 @@ export function SliderField({
   sublabel,
   displayValue,
   className,
+  disabled,
 }: SliderFieldProps) {
   return (
     <div className={cn('space-y-2', className)}>
@@ -42,6 +44,7 @@ export function SliderField({
         min={min}
         max={max}
         step={step}
+        disabled={disabled}
         className="relative flex w-full touch-none select-none items-center py-1"
       >
         <Slider.Control className="relative flex w-full items-center">

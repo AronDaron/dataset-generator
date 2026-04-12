@@ -31,6 +31,7 @@ export function SettingsDialog({
   const [judgeEnabled, setJudgeEnabled] = useState(false)
   const [judgeModel, setJudgeModel] = useState('')
   const [judgeThreshold, setJudgeThreshold] = useState(80)
+  const [judgeCriteria, setJudgeCriteria] = useState('relevance, coherence, naturalness, and educational value')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -52,6 +53,7 @@ export function SettingsDialog({
         setJudgeEnabled(config.judge_enabled)
         setJudgeModel(config.judge_model)
         setJudgeThreshold(config.judge_threshold)
+        setJudgeCriteria(config.judge_criteria)
         if (config.default_model && !model) {
           setLocalModel(config.default_model)
         }
@@ -74,6 +76,7 @@ export function SettingsDialog({
         judge_enabled: judgeEnabled,
         judge_model: judgeModel,
         judge_threshold: judgeThreshold,
+        judge_criteria: judgeCriteria,
       })
       onModelChange(localModel)
       setSaveSuccess(true)
@@ -137,9 +140,11 @@ export function SettingsDialog({
               judgeEnabled={judgeEnabled}
               judgeModel={judgeModel}
               judgeThreshold={judgeThreshold}
+              judgeCriteria={judgeCriteria}
               onJudgeEnabledChange={setJudgeEnabled}
               onJudgeModelChange={setJudgeModel}
               onJudgeThresholdChange={setJudgeThreshold}
+              onJudgeCriteriaChange={setJudgeCriteria}
             />
           </div>
 

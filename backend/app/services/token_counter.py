@@ -2,7 +2,7 @@ import tiktoken
 from functools import lru_cache
 
 ENCODING_NAME = "cl100k_base"
-SAFETY_MARGIN = 0.15
+SAFETY_MARGIN = 0.10
 
 
 @lru_cache(maxsize=1)

@@ -64,10 +64,11 @@ def build_example_generation_prompt(
     outline_points: list[str],
     output_format: Literal["sharegpt", "alpaca", "chatml"],
     max_tokens: int,
+    conversation_turns: int = 2,
 ) -> list[dict[str, str]]:
     outline_text = "\n".join(f"- {p}" for p in outline_points)
     token_guideline = int(max_tokens * 0.70)
-    format_instructions = _format_instructions(output_format)
+    format_instructions = _format_instructions(output_format, conversation_turns)
 
     system = (
         "You are an expert AI training data creator. "
@@ -97,10 +98,33 @@ def build_example_generation_prompt(
     ]
 
 
-def _format_instructions(fmt: Literal["sharegpt", "alpaca", "chatml"]) -> str:
-    if fmt == "sharegpt":
+def _turns_description(turns: int, role: str) -> str:
+    """Return a human-readable instruction for the required number of turns."""
+    if turns == 1:
+        return f"exactly 1 exchange (one {role} message and one assistant response)"
+    if turns == 2:
+        return f"exactly 2 exchanges (two {role} messages and two assistant responses)"
+    return (
+        f"exactly {turns} exchanges ({turns} {role} messages and {turns} assistant responses), "
+        "maintaining coherent context throughout the conversation"
+    )
+
+
+def _coherence_rule(turns: int) -> str:
+    """Extra coherence rule injected for conversations with 3+ turns."""
+    if turns >= 3:
         return (
-            "Output format: ShareGPT multi-turn conversation with 2-3 exchanges.\n"
+            "\n- Each turn must naturally follow from the previous context — "
+            "do not repeat information already covered, do not introduce facts that contradict earlier turns"
+        )
+    return ""
+
+
+def _format_instructions(fmt: Literal["sharegpt", "alpaca", "chatml"], turns: int = 2) -> str:
+    if fmt == "sharegpt":
+        total_entries = turns * 2
+        return (
+            f"Output format: ShareGPT multi-turn conversation with {_turns_description(turns, 'human')}.\n"
             "Schema:\n"
             '{\n'
             '  "conversations": [\n'
@@ -112,9 +136,10 @@ def _format_instructions(fmt: Literal["sharegpt", "alpaca", "chatml"]) -> str:
             '}\n'
             "Rules:\n"
             "- Must start with 'human' and alternate human/gpt\n"
-            "- 2 to 3 human turns (4-6 total entries)\n"
+            f"- The array must contain exactly {total_entries} entries ({turns} human + {turns} gpt)\n"
             "- Human messages form a natural, coherent dialogue\n"
             "- GPT replies are thorough, accurate, and educational"
+            f"{_coherence_rule(turns)}"
         )
     if fmt == "alpaca":
         return (
@@ -131,8 +156,9 @@ def _format_instructions(fmt: Literal["sharegpt", "alpaca", "chatml"]) -> str:
             '- "output" should be thorough and directly answer the instruction'
         )
     # chatml
+    total_entries = turns * 2
     return (
-        "Output format: ChatML multi-turn conversation with 2-3 exchanges.\n"
+        f"Output format: ChatML multi-turn conversation with {_turns_description(turns, 'user')}.\n"
         "Schema:\n"
         '{\n'
         '  "messages": [\n'
@@ -144,6 +170,7 @@ def _format_instructions(fmt: Literal["sharegpt", "alpaca", "chatml"]) -> str:
         '}\n'
         "Rules:\n"
         "- Must start with role 'user' and alternate user/assistant\n"
-        "- 2 to 3 user turns\n"
+        f"- The array must contain exactly {total_entries} entries ({turns} user + {turns} assistant)\n"
         "- Assistant replies are detailed and educationally valuable"
+        f"{_coherence_rule(turns)}"
     )
