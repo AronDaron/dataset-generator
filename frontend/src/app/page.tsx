@@ -39,6 +39,20 @@ export default function GeneratorPage() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [createdJobId, setCreatedJobId] = useState<string | null>(null)
 
+  // Persist active job across page reloads (e.g. HMR or accidental refresh)
+  const SESSION_KEY = 'activeJobId'
+  function updateJobId(id: string | null) {
+    setCreatedJobId(id)
+    if (id) sessionStorage.setItem(SESSION_KEY, id)
+    else sessionStorage.removeItem(SESSION_KEY)
+  }
+
+  // Restore job id from sessionStorage on mount
+  useEffect(() => {
+    const saved = sessionStorage.getItem(SESSION_KEY)
+    if (saved) setCreatedJobId(saved)
+  }, [])
+
   useEffect(() => {
     Promise.all([getApiKey(), getConfig()])
       .then(([keyStatus, config]) => {
@@ -67,7 +81,7 @@ export default function GeneratorPage() {
 
     setIsSubmitting(true)
     setSubmitError(null)
-    setCreatedJobId(null)
+    updateJobId(null)
 
     try {
       const proportionFloats = toApiProportions(categories)
@@ -88,7 +102,7 @@ export default function GeneratorPage() {
         conversation_turns: conversationTurns,
         judge_criteria: judgeCriteria,
       })
-      setCreatedJobId(result.id)
+      updateJobId(result.id)
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Unknown error.')
     } finally {
@@ -136,7 +150,7 @@ export default function GeneratorPage() {
         {/* Right column — parameters (sticky on xl) */}
         <div className="space-y-5 xl:sticky xl:top-20 xl:self-start">
           {createdJobId ? (
-            <JobDashboard jobId={createdJobId} onReset={() => setCreatedJobId(null)} judgeThreshold={judgeThreshold} />
+            <JobDashboard jobId={createdJobId} onReset={() => updateJobId(null)} judgeThreshold={judgeThreshold} />
           ) : (
             <>
               <GlobalControls

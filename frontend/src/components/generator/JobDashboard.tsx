@@ -45,22 +45,25 @@ function statusColor(status: string): string {
 
 function extractPreview(example: SSEExample): string {
   const c = example.content
+  // Guard: content must be a non-null plain object
+  if (c == null || typeof c !== 'object' || Array.isArray(c)) return '(no preview)'
+  const obj = c as Record<string, unknown>
   // ShareGPT: { conversations: [{ from, value }, ...] }
-  if (Array.isArray((c as Record<string, unknown>).conversations)) {
-    const first = ((c as Record<string, unknown>).conversations as Record<string, unknown>[])[0]
+  if (Array.isArray(obj.conversations)) {
+    const first = (obj.conversations as Record<string, unknown>[])[0]
     if (first?.value) return String(first.value).slice(0, 120)
   }
   // Alpaca: { instruction, input, output }
-  if (typeof (c as Record<string, unknown>).instruction === 'string') {
-    return String((c as Record<string, unknown>).instruction).slice(0, 120)
+  if (typeof obj.instruction === 'string') {
+    return obj.instruction.slice(0, 120)
   }
   // ChatML: { messages: [{ role, content }, ...] }
-  if (Array.isArray((c as Record<string, unknown>).messages)) {
-    const first = ((c as Record<string, unknown>).messages as Record<string, unknown>[])[0]
+  if (Array.isArray(obj.messages)) {
+    const first = (obj.messages as Record<string, unknown>[])[0]
     if (first?.content) return String(first.content).slice(0, 120)
   }
   // Fallback: first string value found
-  for (const v of Object.values(c)) {
+  for (const v of Object.values(obj)) {
     if (typeof v === 'string') return v.slice(0, 120)
   }
   return '(no preview)'
