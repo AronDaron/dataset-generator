@@ -281,7 +281,7 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
                     <div className="flex min-w-0 items-center gap-1.5">
                       <span className={`size-2 shrink-0 rounded-full ${colorClass}`} />
                       <span className="truncate font-medium">{name}</span>
-                      {progress?.current_category === name && isRunning && (
+                      {isRunning && cat.completed < cat.target && progress?.current_stage === 'generating_examples' && (
                         <span className="shrink-0 text-blue-400">•</span>
                       )}
                     </div>

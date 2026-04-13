@@ -49,6 +49,7 @@ async def chat_completion(
     }
     if provider:
         payload["provider"] = {"order": [provider], "allow_fallbacks": False}
+        logger.debug("Provider routing: model=%s provider=%s", model, provider)
     last_error: OpenRouterError | None = None
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
         for attempt in range(max_retries):

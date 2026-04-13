@@ -421,7 +421,6 @@ async def _run_category(
 
         total_attempts += 1
         topic = topic_queue.popleft()
-        progress.current_category = cat.name
         await _update_progress(db, job_id, "running", progress)
 
         async with _gen_semaphore:
@@ -460,10 +459,12 @@ async def _run_category(
             accepted = False
             MAX_JUDGE_RETRIES = 3
 
+            # Increment once per unique example (not per retry attempt)
+            progress.judge_stats.evaluated += 1
+
             for attempt in range(MAX_JUDGE_RETRIES):
                 if is_cancelled(job_id):
                     raise _CancelledError()
-                progress.judge_stats.evaluated += 1
                 async with _judge_semaphore:
                     score = await _judge_example(
                         content, config.format, effective_judge_model, api_key,
@@ -562,6 +563,7 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
 
         # ── Stage 2+3: All categories in parallel ─────────────────────────
         progress.current_stage = "generating_examples"
+        progress.current_category = None  # all categories run simultaneously
         await _update_progress(db, job_id, "running", progress)
 
         tasks = [

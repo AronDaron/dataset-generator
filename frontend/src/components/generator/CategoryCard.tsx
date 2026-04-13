@@ -55,17 +55,18 @@ export function CategoryCard({
         const seen = new Set<string>()
         const opts: SelectOption[] = endpoints
           .filter((e) => {
-            if (!e.name || seen.has(e.name)) return false
-            seen.add(e.name)
+            const key = e.provider_name || e.name
+            if (!key || seen.has(key)) return false
+            seen.add(key)
             return true
           })
           .map((e) => {
-            const displayName = e.provider_name || e.name
-            const parts: string[] = [displayName]
+            const routingName = e.provider_name || e.name
+            const parts: string[] = [routingName]
             if (e.latency != null) parts.push(`${Math.round(e.latency)}ms`)
             if (e.uptime_last_30m != null)
               parts.push(`${e.uptime_last_30m.toFixed(1)}% up`)
-            return { value: e.name, label: parts.join(' · ') }
+            return { value: routingName, label: parts.join(' · ') }
           })
         setProviderOptions(opts)
       })
