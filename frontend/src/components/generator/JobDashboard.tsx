@@ -233,6 +233,26 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
             )}
             <span className="ml-auto tabular-nums">{globalPct}%</span>
           </div>
+          {(progress?.actual_cost != null || progress?.judge_cost != null) && (
+            <div className="flex flex-wrap gap-4 border-t border-border pt-2 text-xs text-muted-foreground">
+              {progress.actual_cost != null && (
+                <span>
+                  Generation cost:{' '}
+                  <span className="font-medium text-foreground">
+                    ${progress.actual_cost.toFixed(4)}
+                  </span>
+                </span>
+              )}
+              {progress.judge_cost != null && (
+                <span>
+                  Judge cost (est.):{' '}
+                  <span className="font-medium text-foreground">
+                    ${progress.judge_cost.toFixed(4)}
+                  </span>
+                </span>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 

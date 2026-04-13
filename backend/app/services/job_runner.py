@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 
 _cancelled_jobs: set[str] = set()
 
+TOPIC_BATCH_SIZE = 10
+_judge_semaphore = asyncio.Semaphore(3)
+
 
 def cancel_job(job_id: str) -> None:
     _cancelled_jobs.add(job_id)
@@ -225,6 +228,10 @@ async def _generate_topics(
     cat: CategoryConfig,
     count: int,
 ) -> list[str]:
+    logger.info(
+        "[_generate_topics] category='%s' requested=%d (TOPIC_BATCH_SIZE=%d)",
+        cat.name, count, TOPIC_BATCH_SIZE,
+    )
     messages = build_topic_generation_prompt(cat.name, cat.description, count)
 
     for _ in range(2):
@@ -402,7 +409,7 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
             progress.current_category = cat.name
             await _update_progress(db, job_id, "running", progress)
 
-            topics = await _generate_topics(api_key, config, cat, count)
+            topics = await _generate_topics(api_key, config, cat, min(TOPIC_BATCH_SIZE, count))
             all_topics[cat.name] = topics
             await asyncio.sleep(delay)
 
@@ -429,7 +436,7 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
                         "[job %s] Topics exhausted for '%s', generating %d more to reach target",
                         job_id, cat.name, needed,
                     )
-                    extra = await _generate_topics(api_key, config, cat, needed)
+                    extra = await _generate_topics(api_key, config, cat, min(TOPIC_BATCH_SIZE, needed))
                     topic_queue.extend(extra)
                     await asyncio.sleep(delay)
                     if not topic_queue:
@@ -480,10 +487,11 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
                         if is_cancelled(job_id):
                             raise _CancelledError()
                         progress.judge_stats.evaluated += 1
-                        score = await _judge_example(
-                            content, config.format, effective_judge_model, api_key,
-                            judge_criteria=config.judge_criteria,
-                        )
+                        async with _judge_semaphore:
+                            score = await _judge_example(
+                                content, config.format, effective_judge_model, api_key,
+                                judge_criteria=config.judge_criteria,
+                            )
                         await asyncio.sleep(delay)
 
                         if score is None:
@@ -528,6 +536,22 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
             "[job %s] Completed — generated: %d, skipped: %d (total requested: %d)",
             job_id, progress.completed, progress.skipped, progress.total_examples,
         )
+
+        # Actual cost — SUM(tokens) z tabeli examples × cena per token
+        if config.model_price_per_token > 0:
+            async with db.execute(
+                "SELECT COALESCE(SUM(tokens), 0) FROM examples WHERE job_id = ?", (job_id,)
+            ) as cur:
+                row = await cur.fetchone()
+            progress.actual_cost = (row[0] or 0) * config.model_price_per_token
+
+        # Judge cost — estymacja: evaluated × ~400 tokenów na wywołanie × cena
+        if config.judge_enabled and config.judge_price_per_token > 0 and progress.judge_stats:
+            _AVG_JUDGE_TOKENS = 400
+            progress.judge_cost = (
+                progress.judge_stats.evaluated * _AVG_JUDGE_TOKENS * config.judge_price_per_token
+            )
+
         await _update_progress(db, job_id, "completed", progress)
         try:
             await export_job(job_id, db)

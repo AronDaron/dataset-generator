@@ -21,6 +21,7 @@ export interface GlobalConfig {
 export interface ModelOption {
   id: string
   name: string
+  pricing?: { prompt: string; completion: string }
 }
 
 export interface CategoryConfig {
@@ -42,6 +43,8 @@ export interface JobConfig {
   judge_threshold?: number
   conversation_turns?: number
   judge_criteria?: string
+  model_price_per_token?: number
+  judge_price_per_token?: number
 }
 
 export interface JobCreatedResponse {
@@ -91,10 +94,14 @@ export async function putConfig(cfg: Partial<GlobalConfig>): Promise<void> {
 }
 
 export async function getModels(): Promise<ModelOption[]> {
-  const data = await request<{ models: { id: string; name: string }[] }>(
-    '/api/openrouter/models',
-  )
-  return data.models.map((m) => ({ id: m.id, name: m.name || m.id }))
+  const data = await request<{
+    models: Array<{ id: string; name: string; pricing?: { prompt: string; completion: string } }>
+  }>('/api/openrouter/models')
+  return data.models.map((m) => ({
+    id: m.id,
+    name: m.name || m.id,
+    pricing: m.pricing,
+  }))
 }
 
 export async function createJob(cfg: JobConfig): Promise<JobCreatedResponse> {
@@ -127,6 +134,8 @@ export interface ProgressJson {
   current_category: string | null
   categories: Record<string, CategoryProgress>
   judge_stats: JudgeStats | null
+  actual_cost?: number | null
+  judge_cost?: number | null
 }
 
 export interface SSEExample {

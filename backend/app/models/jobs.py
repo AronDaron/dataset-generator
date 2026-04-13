@@ -26,6 +26,8 @@ class JobConfig(BaseModel):
     judge_threshold: int = Field(default=80, ge=0, le=100)
     conversation_turns: int = Field(default=2, ge=1, le=5)
     judge_criteria: str = Field(default="relevance, coherence, naturalness, and educational value")
+    model_price_per_token: float = 0.0
+    judge_price_per_token: float = 0.0
 
     @model_validator(mode="after")
     def proportions_sum_to_one(self) -> "JobConfig":
@@ -68,6 +70,8 @@ class ProgressJson(BaseModel):
     current_category: Optional[str] = None
     categories: Dict[str, CategoryProgress]
     judge_stats: Optional[JudgeStats] = None
+    actual_cost: Optional[float] = None
+    judge_cost: Optional[float] = None
 
 
 class JobResponse(BaseModel):

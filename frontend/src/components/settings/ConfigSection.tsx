@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SelectField, type SelectOption } from '@/components/ui/select'
 import { SliderField } from '@/components/ui/slider'
-import { getModels } from '@/lib/api'
+import { getModels, type ModelOption } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 interface ConfigSectionProps {
@@ -23,6 +23,21 @@ interface ConfigSectionProps {
   onJudgeModelChange: (model: string) => void
   onJudgeThresholdChange: (threshold: number) => void
   onJudgeCriteriaChange: (criteria: string) => void
+  onModelPricingChange?: (pricing: { prompt: string; completion: string } | undefined) => void
+  onJudgePricingChange?: (pricing: { prompt: string; completion: string } | undefined) => void
+}
+
+function toGroupedOptions(list: ModelOption[]): SelectOption[] {
+  return [...list]
+    .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id))
+    .map((m) => {
+      const prefix = m.id.split('/')[0]
+      return {
+        value: m.id,
+        label: m.name || m.id,
+        group: prefix.charAt(0).toUpperCase() + prefix.slice(1),
+      }
+    })
 }
 
 export function ConfigSection({
@@ -41,8 +56,10 @@ export function ConfigSection({
   onJudgeModelChange,
   onJudgeThresholdChange,
   onJudgeCriteriaChange,
+  onModelPricingChange,
+  onJudgePricingChange,
 }: ConfigSectionProps) {
-  const [models, setModels] = useState<SelectOption[]>([])
+  const [modelList, setModelList] = useState<ModelOption[]>([])
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelsError, setModelsError] = useState<string | null>(null)
 
@@ -51,12 +68,31 @@ export function ConfigSection({
     setLoadingModels(true)
     setModelsError(null)
     getModels()
-      .then((list) =>
-        setModels(list.map((m) => ({ value: m.id, label: m.name || m.id }))),
-      )
+      .then((list) => {
+        setModelList(list)
+        // Fire pricing for already-selected models (config loaded before model list)
+        if (model) {
+          onModelPricingChange?.(list.find((m) => m.id === model)?.pricing)
+        }
+        if (judgeModel) {
+          onJudgePricingChange?.(list.find((m) => m.id === judgeModel)?.pricing)
+        }
+      })
       .catch(() => setModelsError('Failed to load models'))
       .finally(() => setLoadingModels(false))
-  }, [hasApiKey])
+  }, [hasApiKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const modelOptions = toGroupedOptions(modelList)
+
+  const handleModelChange = (value: string) => {
+    onModelChange(value)
+    onModelPricingChange?.(modelList.find((m) => m.id === value)?.pricing)
+  }
+
+  const handleJudgeModelChange = (value: string) => {
+    onJudgeModelChange(value)
+    onJudgePricingChange?.(modelList.find((m) => m.id === value)?.pricing)
+  }
 
   return (
     <>
@@ -76,8 +112,8 @@ export function ConfigSection({
             <>
               <SelectField
                 value={model}
-                onChange={onModelChange}
-                options={models}
+                onChange={handleModelChange}
+                options={modelOptions}
                 placeholder="Select model..."
                 isLoading={loadingModels}
               />
@@ -175,8 +211,8 @@ export function ConfigSection({
               ) : (
                 <SelectField
                   value={judgeModel}
-                  onChange={onJudgeModelChange}
-                  options={models}
+                  onChange={handleJudgeModelChange}
+                  options={modelOptions}
                   placeholder="Use generation model"
                   isLoading={loadingModels}
                 />

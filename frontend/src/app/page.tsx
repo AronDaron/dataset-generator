@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Settings2, Rocket, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SettingsDialog } from '@/components/settings/SettingsDialog'
@@ -34,6 +34,8 @@ export default function GeneratorPage() {
   const [judgeThreshold, setJudgeThreshold] = useState(80)
   const [conversationTurns, setConversationTurns] = useState(2)
   const [judgeCriteria, setJudgeCriteria] = useState('relevance, coherence, naturalness, and educational value')
+  const [modelPricing, setModelPricing] = useState<{ prompt: string; completion: string } | undefined>()
+  const [judgePricing, setJudgePricing] = useState<{ prompt: string; completion: string } | undefined>()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -66,6 +68,20 @@ export default function GeneratorPage() {
       })
       .catch(() => setSettingsOpen(true))
   }, [])
+
+  const estimatedCost = useMemo(() => {
+    if (!modelPricing) return null
+    const avgPrice = (parseFloat(modelPricing.prompt) + parseFloat(modelPricing.completion)) / 2
+    const avgTokens = maxTokens * 0.6 * conversationTurns
+    let cost = totalExamples * avgTokens * avgPrice
+    if (judgeEnabled) {
+      // Brak osobnego judge modelu → judge używa tego samego modelu co generator
+      const effectiveJudgePricing = judgePricing ?? modelPricing
+      const judgeAvg = (parseFloat(effectiveJudgePricing.prompt) + parseFloat(effectiveJudgePricing.completion)) / 2
+      cost += totalExamples * 400 * judgeAvg
+    }
+    return cost
+  }, [modelPricing, judgePricing, totalExamples, maxTokens, judgeEnabled, conversationTurns])
 
   function isValid(): boolean {
     if (categories.length === 0) return false
@@ -101,6 +117,12 @@ export default function GeneratorPage() {
         judge_threshold: judgeThreshold,
         conversation_turns: conversationTurns,
         judge_criteria: judgeCriteria,
+        model_price_per_token: modelPricing
+          ? (parseFloat(modelPricing.prompt) + parseFloat(modelPricing.completion)) / 2
+          : 0,
+        judge_price_per_token: judgePricing
+          ? (parseFloat(judgePricing.prompt) + parseFloat(judgePricing.completion)) / 2
+          : 0,
       })
       updateJobId(result.id)
     } catch (err) {
@@ -191,9 +213,16 @@ export default function GeneratorPage() {
                   {isSubmitting ? 'Starting...' : 'Generate dataset'}
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">
-                  {categories.length > 0
-                    ? `${categories.length} ${categories.length === 1 ? 'category' : 'categories'} · ${totalExamples.toLocaleString('en-US')} examples · ${format.toUpperCase()}`
-                    : 'Select categories from the list on the left'}
+                  {categories.length > 0 ? (
+                    <>
+                      {`${categories.length} ${categories.length === 1 ? 'category' : 'categories'} · ${totalExamples.toLocaleString('en-US')} examples · ${format.toUpperCase()}`}
+                      {estimatedCost != null && (
+                        <span> · est. ${estimatedCost < 0.001 ? estimatedCost.toFixed(5) : estimatedCost.toFixed(4)}</span>
+                      )}
+                    </>
+                  ) : (
+                    'Select categories from the list on the left'
+                  )}
                 </p>
               </div>
             </>
@@ -203,6 +232,8 @@ export default function GeneratorPage() {
 
       <SettingsDialog
         open={settingsOpen}
+        onModelPricingChange={setModelPricing}
+        onJudgePricingChange={setJudgePricing}
         onClose={() => {
           setSettingsOpen(false)
           // Re-sync config from backend after settings saved

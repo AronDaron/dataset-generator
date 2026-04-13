@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 export interface SelectOption {
   value: string
   label: string
+  group?: string
 }
 
 interface SelectFieldProps {
@@ -30,6 +31,21 @@ export function SelectField({
 }: SelectFieldProps) {
   const selectedLabel =
     options.find((o) => o.value === value)?.label ?? placeholder
+
+  const hasGroups = options.some((o) => o.group)
+
+  // Build grouped structure when groups are present
+  const grouped: Array<{ groupName: string; items: SelectOption[] }> = hasGroups
+    ? Object.entries(
+        options.reduce<Record<string, SelectOption[]>>((acc, opt) => {
+          const g = opt.group ?? ''
+          ;(acc[g] ??= []).push(opt)
+          return acc
+        }, {}),
+      )
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([groupName, items]) => ({ groupName, items }))
+    : []
 
   return (
     <Select.Root
@@ -61,22 +77,20 @@ export function SelectField({
             )}
           >
             <Select.List className="max-h-60 overflow-y-auto p-1">
-              {options.map((opt) => (
-                <Select.Item
-                  key={opt.value}
-                  value={opt.value}
-                  className={cn(
-                    'flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none',
-                    'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground',
-                    'data-[selected]:font-medium',
-                  )}
-                >
-                  <Select.ItemIndicator className="flex size-4 items-center justify-center">
-                    <Check className="size-3" />
-                  </Select.ItemIndicator>
-                  <Select.ItemText>{opt.label}</Select.ItemText>
-                </Select.Item>
-              ))}
+              {hasGroups
+                ? grouped.map(({ groupName, items }) => (
+                    <Select.Group key={groupName}>
+                      {groupName && (
+                        <Select.GroupLabel className="px-2 py-1 text-xs font-semibold text-muted-foreground">
+                          {groupName}
+                        </Select.GroupLabel>
+                      )}
+                      {items.map((opt) => (
+                        <SelectItem key={opt.value} opt={opt} />
+                      ))}
+                    </Select.Group>
+                  ))
+                : options.map((opt) => <SelectItem key={opt.value} opt={opt} />)}
               {options.length === 0 && !isLoading && (
                 <div className="px-2 py-4 text-center text-sm text-muted-foreground">
                   No options
@@ -87,5 +101,23 @@ export function SelectField({
         </Select.Positioner>
       </Select.Portal>
     </Select.Root>
+  )
+}
+
+function SelectItem({ opt }: { opt: SelectOption }) {
+  return (
+    <Select.Item
+      value={opt.value}
+      className={cn(
+        'flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none',
+        'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground',
+        'data-[selected]:font-medium',
+      )}
+    >
+      <Select.ItemIndicator className="flex size-4 items-center justify-center">
+        <Check className="size-3" />
+      </Select.ItemIndicator>
+      <Select.ItemText>{opt.label}</Select.ItemText>
+    </Select.Item>
   )
 }

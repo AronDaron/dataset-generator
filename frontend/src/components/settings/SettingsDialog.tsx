@@ -14,6 +14,8 @@ interface SettingsDialogProps {
   onClose: () => void
   model: string
   onModelChange: (model: string) => void
+  onModelPricingChange?: (pricing: { prompt: string; completion: string } | undefined) => void
+  onJudgePricingChange?: (pricing: { prompt: string; completion: string } | undefined) => void
 }
 
 export function SettingsDialog({
@@ -21,6 +23,8 @@ export function SettingsDialog({
   onClose,
   model,
   onModelChange,
+  onModelPricingChange,
+  onJudgePricingChange,
 }: SettingsDialogProps) {
   const [hasKey, setHasKey] = useState(false)
   const [keyPreview, setKeyPreview] = useState<string | null>(null)
@@ -145,6 +149,8 @@ export function SettingsDialog({
               onJudgeModelChange={setJudgeModel}
               onJudgeThresholdChange={setJudgeThreshold}
               onJudgeCriteriaChange={setJudgeCriteria}
+              onModelPricingChange={onModelPricingChange}
+              onJudgePricingChange={onJudgePricingChange}
             />
           </div>
 
