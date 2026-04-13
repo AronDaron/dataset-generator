@@ -1,10 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { Key, Trash2, AlertCircle } from 'lucide-react'
+import { Trash2, AlertCircle, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { saveApiKey, deleteApiKey } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 interface ApiKeySectionProps {
   hasKey: boolean
@@ -55,24 +55,21 @@ export function ApiKeySection({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Key className="size-4" />
-          OpenRouter API Key
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {hasKey && !showInput ? (
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-sm bg-muted px-2 py-1 rounded">
-              {keyPreview ?? '...????'}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowInput(true)}
-            >
+    <div className="space-y-3">
+      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70">
+        OpenRouter API Key
+      </p>
+
+      {hasKey && !showInput ? (
+        /* Connected state — green banner */
+        <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/6 px-4 py-2.5">
+          <div className="flex flex-1 items-center gap-2 min-w-0">
+            <span className="size-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
+            <span className="text-sm font-medium text-emerald-400">Connected</span>
+            <span className="font-mono text-sm text-muted-foreground truncate">{keyPreview ?? '…'}</span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => setShowInput(true)}>
               Change
             </Button>
             <Button
@@ -82,21 +79,25 @@ export function ApiKeySection({
               disabled={deleting}
             >
               <Trash2 className="size-3.5" />
-              {deleting ? 'Deleting...' : 'Delete'}
+              {deleting ? 'Removing…' : 'Remove'}
             </Button>
           </div>
-        ) : (
+        </div>
+      ) : (
+        /* Input state */
+        <div className="space-y-2">
           <div className="flex gap-2">
             <input
               type="password"
               value={inputKey}
               onChange={(e) => setInputKey(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSave()}
-              placeholder="sk-or-..."
-              className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+              placeholder="sk-or-…"
+              autoFocus
+              className="flex-1 rounded-lg border border-border bg-white/4 px-3 py-1.5 text-sm outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/20"
             />
             <Button onClick={handleSave} disabled={saving || !inputKey.trim()} size="sm">
-              {saving ? 'Saving...' : 'Save'}
+              {saving ? 'Saving…' : 'Save'}
             </Button>
             {hasKey && (
               <Button variant="ghost" size="sm" onClick={() => setShowInput(false)}>
@@ -104,24 +105,23 @@ export function ApiKeySection({
               </Button>
             )}
           </div>
-        )}
-
-        {error && (
-          <p className="flex items-center gap-1.5 text-sm text-destructive">
-            <AlertCircle className="size-3.5" />
-            {error}
-          </p>
-        )}
-
-        <div className="flex items-start gap-1.5 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
-          <AlertCircle className="size-3.5 mt-0.5 shrink-0" />
-          <span>
-            The API key is stored locally on your device and never leaves your
-            computer. You are responsible for complying with the terms of
-            service of model providers on OpenRouter.
-          </span>
         </div>
-      </CardContent>
-    </Card>
+      )}
+
+      {error && (
+        <p className="flex items-center gap-1.5 text-sm text-destructive">
+          <AlertCircle className="size-3.5 shrink-0" />
+          {error}
+        </p>
+      )}
+
+      <div className="flex items-start gap-2 rounded-lg bg-white/4 px-3 py-2.5 text-xs text-muted-foreground">
+        <Info className="size-3.5 mt-0.5 shrink-0" />
+        <span>
+          Stored locally on your device — never sent anywhere else.
+          You are responsible for complying with OpenRouter's terms of service.
+        </span>
+      </div>
+    </div>
   )
 }

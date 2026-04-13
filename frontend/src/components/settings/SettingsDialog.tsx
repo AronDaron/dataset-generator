@@ -112,13 +112,17 @@ export function SettingsDialog({
           className={cn(
             'fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2',
             'max-h-[90vh] overflow-y-auto',
-            'rounded-xl bg-background ring-1 ring-border shadow-xl',
-            'p-6',
+            'rounded-2xl shadow-2xl',
+            'ring-1 ring-white/10',
           )}
+          style={{
+            background: 'oklch(0.13 0.026 232 / 0.97)',
+            backdropFilter: 'blur(20px)',
+          }}
         >
           {/* Header */}
-          <div className="mb-5 flex items-center justify-between">
-            <Dialog.Title className="text-lg font-semibold">
+          <div className="flex items-center justify-between border-b border-white/8 px-6 py-4">
+            <Dialog.Title className="text-base font-semibold">
               Settings
             </Dialog.Title>
             <Dialog.Close
@@ -131,7 +135,7 @@ export function SettingsDialog({
           </div>
 
           {/* Content */}
-          <div className="space-y-4">
+          <div className="space-y-5 px-6 py-5">
             <ApiKeySection
               hasKey={hasKey}
               keyPreview={keyPreview}
@@ -164,7 +168,7 @@ export function SettingsDialog({
           </div>
 
           {/* Footer */}
-          <div className="mt-5 flex items-center justify-end gap-2">
+          <div className="flex items-center justify-end gap-2 border-t border-white/8 px-6 py-4">
             {saveError && (
               <p className="mr-auto text-sm text-destructive">{saveError}</p>
             )}

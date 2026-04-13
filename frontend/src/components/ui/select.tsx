@@ -8,6 +8,7 @@ export interface SelectOption {
   value: string
   label: string
   group?: string
+  icon?: string
 }
 
 interface SelectFieldProps {
@@ -29,12 +30,12 @@ export function SelectField({
   disabled = false,
   className,
 }: SelectFieldProps) {
-  const selectedLabel =
-    options.find((o) => o.value === value)?.label ?? placeholder
+  const selectedOption = options.find((o) => o.value === value)
+  const selectedLabel = selectedOption?.label ?? placeholder
+  const selectedIcon = selectedOption?.icon
 
   const hasGroups = options.some((o) => o.group)
 
-  // Build grouped structure when groups are present
   const grouped: Array<{ groupName: string; items: SelectOption[] }> = hasGroups
     ? Object.entries(
         options.reduce<Record<string, SelectOption[]>>((acc, opt) => {
@@ -55,33 +56,47 @@ export function SelectField({
     >
       <Select.Trigger
         className={cn(
-          'inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-1.5 text-sm',
-          'outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50',
-          'disabled:pointer-events-none disabled:opacity-50',
-          'aria-expanded:border-ring',
+          'group inline-flex w-full items-center justify-between gap-2 rounded-lg',
+          'border border-white/10 bg-white/5 px-3 py-1.5 text-sm',
+          'transition-all duration-150',
+          'outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/20',
+          'hover:border-white/16 hover:bg-white/7',
+          'aria-expanded:border-primary/35 aria-expanded:bg-white/7',
+          'disabled:pointer-events-none disabled:opacity-40',
           className,
         )}
       >
-        <span className={cn('truncate', !value && 'text-muted-foreground')}>
-          {isLoading ? 'Loading models...' : selectedLabel}
+        <span className={cn('flex min-w-0 items-center gap-1.5', !value && 'text-muted-foreground/60')}>
+          {selectedIcon && !isLoading && (
+            <img src={selectedIcon} alt="" className="size-3.5 shrink-0 object-contain opacity-90" />
+          )}
+          <span className="truncate">{isLoading ? 'Loading…' : selectedLabel}</span>
         </span>
-        <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+        <ChevronDown
+          className={cn(
+            'size-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-200',
+            'group-aria-expanded:rotate-180',
+          )}
+        />
       </Select.Trigger>
 
       <Select.Portal>
-        <Select.Positioner sideOffset={4} className="z-[200]">
+        <Select.Positioner sideOffset={5} className="z-[200]">
           <Select.Popup
             className={cn(
-              'w-[var(--anchor-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg',
+              'w-[var(--anchor-width)] min-w-[180px] overflow-hidden rounded-xl',
+              'border border-white/10',
+              'bg-[oklch(0.20_0.024_250)] backdrop-blur-xl',
+              'shadow-[0_12px_40px_oklch(0_0_0/0.55),0_2px_8px_oklch(0_0_0/0.35),inset_0_1px_0_oklch(1_0_0/0.08)]',
               'outline-none',
             )}
           >
-            <Select.List className="max-h-60 overflow-y-auto p-1">
+            <Select.List className="max-h-64 overflow-y-auto p-1">
               {hasGroups
                 ? grouped.map(({ groupName, items }) => (
                     <Select.Group key={groupName}>
                       {groupName && (
-                        <Select.GroupLabel className="px-2 py-1 text-xs font-semibold text-muted-foreground">
+                        <Select.GroupLabel className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/45">
                           {groupName}
                         </Select.GroupLabel>
                       )}
@@ -92,7 +107,7 @@ export function SelectField({
                   ))
                 : options.map((opt) => <SelectItem key={opt.value} opt={opt} />)}
               {options.length === 0 && !isLoading && (
-                <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                <div className="px-2 py-5 text-center text-xs text-muted-foreground/50">
                   No options
                 </div>
               )}
@@ -109,15 +124,22 @@ function SelectItem({ opt }: { opt: SelectOption }) {
     <Select.Item
       value={opt.value}
       className={cn(
-        'flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none',
-        'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground',
-        'data-[selected]:font-medium',
+        'flex cursor-default select-none items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-none',
+        'transition-colors duration-100',
+        'data-[highlighted]:bg-white/7 data-[highlighted]:text-foreground',
+        'data-[selected]:text-primary',
       )}
     >
-      <Select.ItemIndicator className="flex size-4 items-center justify-center">
-        <Check className="size-3" />
-      </Select.ItemIndicator>
-      <Select.ItemText>{opt.label}</Select.ItemText>
+      {/* Fixed-width slot — prevents text from jumping when check appears */}
+      <span className="flex w-3.5 shrink-0 items-center justify-center">
+        <Select.ItemIndicator>
+          <Check className="size-3 text-primary" />
+        </Select.ItemIndicator>
+      </span>
+      {opt.icon && (
+        <img src={opt.icon} alt="" className="size-3.5 shrink-0 object-contain opacity-80" />
+      )}
+      <Select.ItemText className="truncate">{opt.label}</Select.ItemText>
     </Select.Item>
   )
 }

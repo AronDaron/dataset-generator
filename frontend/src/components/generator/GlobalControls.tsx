@@ -1,7 +1,8 @@
 'use client'
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { SliderField } from '@/components/ui/slider'
+import { cn } from '@/lib/utils'
 
 const TURNS_LABEL: Record<number, string> = {
   1: 'Single Q&A',
@@ -35,90 +36,74 @@ export function GlobalControls({
   onConversationTurnsChange,
 }: GlobalControlsProps) {
   const isAlpaca = format === 'alpaca'
+
   return (
-    <div className="space-y-3">
-      <h2 className="text-base font-semibold">Generation parameters</h2>
-
+    <div>
+      <p className="mb-2.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">
+        Parameters
+      </p>
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            Response diversity
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <SliderField
-            value={temperature}
-            onValueChange={onTemperatureChange}
-            min={0}
-            max={1.5}
-            step={0.05}
-            label="Temperatura"
-            displayValue={temperature.toFixed(2)}
-            sublabel="Closer to instructions ↔ More diverse"
-          />
-        </CardContent>
-      </Card>
+        <CardContent className="p-0">
+          <div className="divide-y divide-border/40">
+            {/* Temperature */}
+            <div className="px-4 py-3.5">
+              <SliderField
+                value={temperature}
+                onValueChange={onTemperatureChange}
+                min={0}
+                max={1.5}
+                step={0.05}
+                label="Temperature"
+                displayValue={temperature.toFixed(2)}
+                sublabel="Precise ↔ Creative"
+              />
+            </div>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            Context length (max tokens per example)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <SliderField
-            value={maxTokens}
-            onValueChange={onMaxTokensChange}
-            min={512}
-            max={8192}
-            step={128}
-            label="Max tokens"
-            displayValue={`${maxTokens.toLocaleString('en-US')} tokens`}
-          />
-        </CardContent>
-      </Card>
+            {/* Max tokens */}
+            <div className="px-4 py-3.5">
+              <SliderField
+                value={maxTokens}
+                onValueChange={onMaxTokensChange}
+                min={512}
+                max={8192}
+                step={128}
+                label="Max tokens"
+                displayValue={maxTokens.toLocaleString('en-US')}
+              />
+            </div>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            Dataset size
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <SliderField
-            value={totalExamples}
-            onValueChange={onTotalExamplesChange}
-            min={10}
-            max={10000}
-            step={10}
-            label="Number of examples"
-            displayValue={totalExamples.toLocaleString('en-US')}
-          />
-        </CardContent>
-      </Card>
+            {/* Total examples */}
+            <div className="px-4 py-3.5">
+              <SliderField
+                value={totalExamples}
+                onValueChange={onTotalExamplesChange}
+                min={10}
+                max={10000}
+                step={10}
+                label="Examples"
+                displayValue={totalExamples.toLocaleString('en-US')}
+              />
+            </div>
 
-      <Card className={isAlpaca ? 'opacity-50' : ''}>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            Conversation turns
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <SliderField
-            value={conversationTurns}
-            onValueChange={onConversationTurnsChange}
-            min={1}
-            max={5}
-            step={1}
-            label={TURNS_LABEL[conversationTurns] ?? ''}
-            displayValue={String(conversationTurns)}
-            disabled={isAlpaca}
-          />
-          <p className="text-xs text-muted-foreground mt-2">
-            {isAlpaca
-              ? 'Alpaca supports single Q&A only — conversation turns locked to 1'
-              : 'More turns = longer examples · each extra turn adds ~300–500 tokens'}
-          </p>
+            {/* Conversation turns */}
+            <div className={cn('px-4 py-3.5', isAlpaca && 'opacity-50')}>
+              <SliderField
+                value={conversationTurns}
+                onValueChange={onConversationTurnsChange}
+                min={1}
+                max={5}
+                step={1}
+                label="Turns"
+                displayValue={`${conversationTurns} — ${TURNS_LABEL[conversationTurns] ?? ''}`}
+                disabled={isAlpaca}
+              />
+              {isAlpaca && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Locked to 1 for Alpaca format
+                </p>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

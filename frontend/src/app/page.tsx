@@ -9,6 +9,7 @@ import { GlobalControls } from '@/components/generator/GlobalControls'
 import { FormatSelector } from '@/components/generator/FormatSelector'
 import { type Category, toApiProportions } from '@/lib/proportions'
 import { getApiKey, getConfig, getModels, createJob, type ModelOption } from '@/lib/api'
+import { getProviderIcon } from '@/lib/provider-icons'
 import type { SelectOption } from '@/components/ui/select'
 import { JobDashboard } from '@/components/generator/JobDashboard'
 
@@ -23,6 +24,7 @@ function toGroupedOptions(list: ModelOption[]): SelectOption[] {
         value: m.id,
         label: m.name || m.id,
         group: prefix.charAt(0).toUpperCase() + prefix.slice(1),
+        icon: getProviderIcon(m.id),
       }
     })
 }
@@ -232,9 +234,9 @@ export default function GeneratorPage() {
                   onClick={handleStart}
                   disabled={isSubmitting || !isValid()}
                   size="lg"
-                  className="w-full"
+                  className="w-full btn-cta"
                 >
-                  {isSubmitting ? 'Starting...' : 'Generate dataset'}
+                  {isSubmitting ? 'Starting…' : 'Generate dataset'}
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">
                   {categories.length > 0 ? (

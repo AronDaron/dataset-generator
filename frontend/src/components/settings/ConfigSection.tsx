@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SelectField, type SelectOption } from '@/components/ui/select'
 import { SliderField } from '@/components/ui/slider'
 import { getModels, getModelEndpoints, type ModelOption } from '@/lib/api'
+import { getProviderIcon } from '@/lib/provider-icons'
 import { cn } from '@/lib/utils'
 
 interface ConfigSectionProps {
@@ -38,8 +38,17 @@ function toGroupedOptions(list: ModelOption[]): SelectOption[] {
         value: m.id,
         label: m.name || m.id,
         group: prefix.charAt(0).toUpperCase() + prefix.slice(1),
+        icon: getProviderIcon(m.id),
       }
     })
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70">
+      {children}
+    </p>
+  )
 }
 
 export function ConfigSection({
@@ -76,13 +85,8 @@ export function ConfigSection({
     getModels()
       .then((list) => {
         setModelList(list)
-        // Fire pricing for already-selected models (config loaded before model list)
-        if (model) {
-          onModelPricingChange?.(list.find((m) => m.id === model)?.pricing)
-        }
-        if (judgeModel) {
-          onJudgePricingChange?.(list.find((m) => m.id === judgeModel)?.pricing)
-        }
+        if (model) onModelPricingChange?.(list.find((m) => m.id === model)?.pricing)
+        if (judgeModel) onJudgePricingChange?.(list.find((m) => m.id === judgeModel)?.pricing)
       })
       .catch(() => setModelsError('Failed to load models'))
       .finally(() => setLoadingModels(false))
@@ -95,7 +99,6 @@ export function ConfigSection({
     onModelPricingChange?.(modelList.find((m) => m.id === value)?.pricing)
   }
 
-  // Lazy-fetch judge providers when judge model changes
   useEffect(() => {
     if (!judgeModel) { setJudgeProviderOptions([]); return }
     let cancelled = false
@@ -128,94 +131,77 @@ export function ConfigSection({
   const handleJudgeModelChange = (value: string) => {
     onJudgeModelChange(value)
     onJudgePricingChange?.(modelList.find((m) => m.id === value)?.pricing)
-    onJudgeProviderChange('')  // reset provider when model changes
+    onJudgeProviderChange('')
   }
 
   return (
-    <>
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Generation settings</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Model selection */}
+    <div className="space-y-5">
+      {/* ── Generation ──────────────────────────────── */}
+      <div className="space-y-3.5">
+        <SectionLabel>Generation</SectionLabel>
+
+        {/* Model */}
         <div className="space-y-1.5">
           <label className="text-sm font-medium">Model</label>
           {!hasApiKey ? (
-            <p className="text-sm text-muted-foreground">
-              Set your API key to load available models.
-            </p>
+            <p className="text-sm text-muted-foreground">Enter your API key above to load available models.</p>
           ) : (
             <>
               <SelectField
                 value={model}
                 onChange={handleModelChange}
                 options={modelOptions}
-                placeholder="Select model..."
+                placeholder="Select model…"
                 isLoading={loadingModels}
               />
-              {modelsError && (
-                <p className="text-xs text-destructive">{modelsError}</p>
-              )}
+              {modelsError && <p className="text-xs text-destructive">{modelsError}</p>}
             </>
           )}
         </div>
 
-        {/* Delay */}
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium">
-            Delay between requests
-          </label>
-          <div className="flex items-center gap-2">
+        {/* Delay + Retry — side by side */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">
+              Delay{' '}
+              <span className="text-xs font-normal text-muted-foreground">sec</span>
+            </label>
             <input
               type="number"
               min={0}
               max={60}
               value={delay}
-              onChange={(e) =>
-                onDelayChange(Math.max(0, Math.min(60, Number(e.target.value))))
-              }
-              className="w-20 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+              onChange={(e) => onDelayChange(Math.max(0, Math.min(60, Number(e.target.value))))}
+              className="w-full rounded-lg border border-border bg-white/4 px-3 py-1.5 text-sm outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/20"
             />
-            <span className="text-sm text-muted-foreground">seconds</span>
           </div>
-        </div>
-
-        {/* Retry count */}
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium">
-            Retry attempts on API error
-          </label>
-          <div className="flex items-center gap-2">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">
+              Retries{' '}
+              <span className="text-xs font-normal text-muted-foreground">on error</span>
+            </label>
             <input
               type="number"
               min={1}
               max={10}
               value={retryCount}
-              onChange={(e) =>
-                onRetryChange(Math.max(1, Math.min(10, Number(e.target.value))))
-              }
-              className="w-20 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+              onChange={(e) => onRetryChange(Math.max(1, Math.min(10, Number(e.target.value))))}
+              className="w-full rounded-lg border border-border bg-white/4 px-3 py-1.5 text-sm outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/20"
             />
-            <span className="text-sm text-muted-foreground">
-              (15s cooldown on 429/500)
-            </span>
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
 
-    {/* LLM Judge card */}
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">LLM Judge</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Toggle */}
+      {/* Divider */}
+      <div className="border-t border-border/50" />
+
+      {/* ── LLM Judge ───────────────────────────────── */}
+      <div className="space-y-3.5">
+        {/* Toggle row */}
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium">Enable LLM Judge</p>
-            <p className="text-xs text-muted-foreground">(generates additional cost)</p>
+            <SectionLabel>LLM Judge</SectionLabel>
+            <p className="mt-0.5 text-xs text-muted-foreground">Additional API cost applies</p>
           </div>
           <button
             role="switch"
@@ -236,66 +222,70 @@ export function ConfigSection({
           </button>
         </div>
 
-        {/* Conditional sub-fields */}
         {judgeEnabled && (
-          <>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Judge model</label>
-              {!hasApiKey ? (
-                <p className="text-sm text-muted-foreground">
-                  Set your API key to load available models.
-                </p>
-              ) : (
-                <SelectField
-                  value={judgeModel}
-                  onChange={handleJudgeModelChange}
-                  options={modelOptions}
-                  placeholder="Use generation model"
-                  isLoading={loadingModels}
-                />
-              )}
+          <div className="space-y-3.5">
+            {/* Judge model + provider — side by side */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="min-w-0 space-y-1.5">
+                <label className="text-sm font-medium">Judge model</label>
+                {!hasApiKey ? (
+                  <p className="text-xs text-muted-foreground">API key required</p>
+                ) : (
+                  <SelectField
+                    value={judgeModel}
+                    onChange={handleJudgeModelChange}
+                    options={modelOptions}
+                    placeholder="Gen model"
+                    isLoading={loadingModels}
+                  />
+                )}
+              </div>
+              <div className="min-w-0 space-y-1.5">
+                <label className="text-sm font-medium">Provider</label>
+                {judgeModel ? (
+                  <SelectField
+                    value={judgeProvider}
+                    onChange={(val) => onJudgeProviderChange(val || '')}
+                    options={[{ value: '', label: '— Auto —' }, ...judgeProviderOptions]}
+                    placeholder="— Auto —"
+                    isLoading={loadingJudgeProviders}
+                  />
+                ) : (
+                  <div className="flex h-[34px] items-center rounded-lg border border-white/8 bg-white/3 px-3 text-xs text-white/20 select-none">
+                    select model first
+                  </div>
+                )}
+              </div>
             </div>
 
-            {judgeModel && (loadingJudgeProviders || judgeProviderOptions.length > 0) && (
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Judge provider</label>
-                <SelectField
-                  value={judgeProvider}
-                  onChange={(val) => onJudgeProviderChange(val || '')}
-                  options={[{ value: '', label: '— Auto-select provider —' }, ...judgeProviderOptions]}
-                  placeholder="— Auto-select provider —"
-                  isLoading={loadingJudgeProviders}
-                />
-              </div>
-            )}
-
+            {/* Threshold */}
             <SliderField
               value={judgeThreshold}
               onValueChange={onJudgeThresholdChange}
               min={0}
               max={100}
               step={1}
-              label="Minimum quality score"
+              label="Min quality score"
               displayValue={`${judgeThreshold}/100`}
             />
 
+            {/* Criteria */}
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Judge evaluation criteria</label>
+              <label className="text-sm font-medium">Evaluation criteria</label>
               <textarea
                 value={judgeCriteria}
                 onChange={(e) => onJudgeCriteriaChange(e.target.value)}
-                rows={3}
-                placeholder="relevance, coherence, naturalness, and educational value"
-                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                rows={2}
+                placeholder="relevance, coherence, naturalness, educational value"
+                className="w-full resize-none rounded-lg border border-border bg-white/4 px-3 py-2 text-sm outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/20"
               />
               <p className="text-xs text-muted-foreground">
-                Comma-separated list of criteria sent to the judge model
+                Comma-separated criteria sent to the judge model
               </p>
             </div>
-          </>
+          </div>
         )}
-      </CardContent>
-    </Card>
-    </>
+      </div>
+    </div>
   )
 }

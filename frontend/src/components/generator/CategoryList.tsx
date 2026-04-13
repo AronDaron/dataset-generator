@@ -69,7 +69,7 @@ const PRESETS: Preset[] = [
   },
 ]
 
-// Pastel colors for segment bar / category dots (must match CategoryCard)
+// Tailwind bg classes for segment bar / category dots
 export const CATEGORY_COLORS = [
   'bg-blue-400',
   'bg-emerald-400',
@@ -81,6 +81,20 @@ export const CATEGORY_COLORS = [
   'bg-pink-400',
   'bg-teal-400',
   'bg-indigo-400',
+]
+
+// Hex values matching CATEGORY_COLORS (for inline border / glow styles)
+export const CATEGORY_COLOR_HEX = [
+  '#60a5fa', // blue-400
+  '#34d399', // emerald-400
+  '#a78bfa', // violet-400
+  '#fbbf24', // amber-400
+  '#fb7185', // rose-400
+  '#22d3ee', // cyan-400
+  '#fb923c', // orange-400
+  '#f472b6', // pink-400
+  '#2dd4bf', // teal-400
+  '#818cf8', // indigo-400
 ]
 
 function makeId(): string {
@@ -96,14 +110,12 @@ interface CategoryListProps {
 export function CategoryList({ categories, onChange, modelOptions = [] }: CategoryListProps) {
   const isFull = categories.length >= 10
 
-  // Check if a preset name is already active (by exact name match)
   function isPresetActive(name: string): boolean {
     return categories.some((c) => c.name === name)
   }
 
   function handlePresetToggle(preset: Preset) {
     if (isPresetActive(preset.name)) {
-      // Remove by name
       const cat = categories.find((c) => c.name === preset.name)
       if (cat) onChange(removeCategory(categories, cat.id))
     } else {
@@ -133,16 +145,16 @@ export function CategoryList({ categories, onChange, modelOptions = [] }: Catego
     <div className="space-y-5">
       {/* Header */}
       <div>
-        <h2 className="text-base font-semibold">Dataset categories</h2>
-        <p className="mt-0.5 text-sm text-muted-foreground">
+        <h2 className="text-sm font-semibold tracking-wide text-foreground/90">Dataset categories</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground/70">
           Select preset categories or add a custom one. Proportions must sum to 100%.
         </p>
       </div>
 
       {/* Preset chips */}
       <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Preset categories
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70">
+          Presets
         </p>
         <div className="flex flex-wrap gap-2">
           {PRESETS.map((preset) => {
@@ -154,12 +166,14 @@ export function CategoryList({ categories, onChange, modelOptions = [] }: Catego
                 disabled={!active && isFull}
                 title={preset.description}
                 className={[
-                  'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-all backdrop-blur-sm',
+                  'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium',
+                  'transition-all duration-150 backdrop-blur-sm',
+                  'hover:scale-[1.04] active:scale-[0.96]',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-                  'disabled:cursor-not-allowed disabled:opacity-40',
+                  'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100',
                   active
-                    ? 'border-primary/35 bg-primary/10 text-primary shadow-[0_0_8px_oklch(0.62_0.20_228/0.18)] ring-1 ring-primary/14'
-                    : 'border-white/10 bg-white/5 text-foreground/70 hover:bg-white/10 hover:text-foreground hover:border-white/20',
+                    ? 'border-primary/40 bg-primary/12 text-primary shadow-[0_0_12px_oklch(0.65_0.22_292/0.20)]'
+                    : 'border-white/8 bg-white/3 text-foreground/55 hover:bg-white/7 hover:text-foreground/85 hover:border-white/16',
                 ].join(' ')}
               >
                 {active && <Check className="size-3.5" />}
@@ -168,15 +182,16 @@ export function CategoryList({ categories, onChange, modelOptions = [] }: Catego
             )
           })}
 
-          {/* Custom category button */}
           <button
             onClick={handleAddCustom}
             disabled={isFull}
             className={[
-              'inline-flex items-center gap-1.5 rounded-full border border-dashed px-3 py-1.5 text-sm font-medium transition-all backdrop-blur-sm',
+              'inline-flex items-center gap-1.5 rounded-full border border-dashed px-3 py-1.5 text-xs font-medium',
+              'transition-all duration-150 backdrop-blur-sm',
+              'hover:scale-[1.04] active:scale-[0.96]',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-              'disabled:cursor-not-allowed disabled:opacity-40',
-              'border-white/15 text-white/40 hover:border-primary/50 hover:text-primary hover:bg-primary/10',
+              'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100',
+              'border-white/12 text-white/35 hover:border-primary/45 hover:text-primary hover:bg-primary/8',
             ].join(' ')}
           >
             <Plus className="size-3.5" />
@@ -190,9 +205,9 @@ export function CategoryList({ categories, onChange, modelOptions = [] }: Catego
 
       {/* Active categories */}
       {categories.length > 0 && (
-        <div className="space-y-4">
+        <div className="space-y-3.5">
           <div className="flex items-center gap-3">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70">
               Active ({categories.length}/10)
             </p>
             {/* Proportion bar */}
@@ -208,7 +223,8 @@ export function CategoryList({ categories, onChange, modelOptions = [] }: Catego
             </div>
           </div>
 
-          <div className="space-y-3">
+          {/* 2-column grid on larger screens */}
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {categories.map((cat, i) => (
               <CategoryCard
                 key={cat.id}
@@ -227,8 +243,8 @@ export function CategoryList({ categories, onChange, modelOptions = [] }: Catego
       )}
 
       {categories.length === 0 && (
-        <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
-          Click a category above to start building your dataset.
+        <div className="rounded-xl border border-dashed border-white/10 py-14 text-center text-sm text-muted-foreground">
+          Click a preset above or add a custom category to get started.
         </div>
       )}
     </div>

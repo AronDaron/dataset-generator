@@ -33,7 +33,7 @@ export function SliderField({
       {(label || displayValue !== undefined) && (
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium">{label}</span>
-          <span className="text-muted-foreground tabular-nums">
+          <span className="rounded-md border border-white/8 bg-white/5 px-1.5 py-0.5 font-mono text-xs tabular-nums text-foreground/80">
             {displayValue ?? value}
           </span>
         </div>
@@ -54,7 +54,7 @@ export function SliderField({
           <Slider.Thumb
             className={cn(
               'block size-4 shrink-0 rounded-full bg-white',
-              'shadow-[0_0_7px_oklch(0.62_0.20_228/0.5),0_2px_4px_oklch(0_0_0/0.4)]',
+              'shadow-[0_0_7px_oklch(0.65_0.22_292/0.55),0_2px_4px_oklch(0_0_0/0.4)]',
               'ring-2 ring-primary/28',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
               'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
