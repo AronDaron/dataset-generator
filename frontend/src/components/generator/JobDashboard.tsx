@@ -229,6 +229,12 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
                   Rejected:{' '}
                   <span className="font-medium text-foreground">{progress.judge_stats.rejected}</span>
                 </span>
+                {progress.judge_stats.avg_score != null && (
+                  <span>
+                    Avg score:{' '}
+                    <span className="font-medium text-foreground">{progress.judge_stats.avg_score}</span>
+                  </span>
+                )}
               </>
             )}
             <span className="ml-auto tabular-nums">{globalPct}%</span>

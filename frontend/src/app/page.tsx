@@ -8,10 +8,24 @@ import { CategoryList } from '@/components/generator/CategoryList'
 import { GlobalControls } from '@/components/generator/GlobalControls'
 import { FormatSelector } from '@/components/generator/FormatSelector'
 import { type Category, toApiProportions } from '@/lib/proportions'
-import { getApiKey, getConfig, createJob } from '@/lib/api'
+import { getApiKey, getConfig, getModels, createJob, type ModelOption } from '@/lib/api'
+import type { SelectOption } from '@/components/ui/select'
 import { JobDashboard } from '@/components/generator/JobDashboard'
 
 type ExportFormat = 'sharegpt' | 'alpaca' | 'chatml'
+
+function toGroupedOptions(list: ModelOption[]): SelectOption[] {
+  return [...list]
+    .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id))
+    .map((m) => {
+      const prefix = m.id.split('/')[0]
+      return {
+        value: m.id,
+        label: m.name || m.id,
+        group: prefix.charAt(0).toUpperCase() + prefix.slice(1),
+      }
+    })
+}
 
 function validateCategories(cats: Category[]): string | null {
   for (const cat of cats) {
@@ -34,6 +48,8 @@ export default function GeneratorPage() {
   const [judgeThreshold, setJudgeThreshold] = useState(80)
   const [conversationTurns, setConversationTurns] = useState(2)
   const [judgeCriteria, setJudgeCriteria] = useState('relevance, coherence, naturalness, and educational value')
+  const [judgeProvider, setJudgeProvider] = useState('')
+  const [modelList, setModelList] = useState<ModelOption[]>([])
   const [modelPricing, setModelPricing] = useState<{ prompt: string; completion: string } | undefined>()
   const [judgePricing, setJudgePricing] = useState<{ prompt: string; completion: string } | undefined>()
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -65,6 +81,7 @@ export default function GeneratorPage() {
         setConversationTurns(config.conversation_turns)
         setJudgeCriteria(config.judge_criteria)
         if (!keyStatus.has_key) setSettingsOpen(true)
+        else getModels().then(setModelList).catch(() => {/* non-fatal */})
       })
       .catch(() => setSettingsOpen(true))
   }, [])
@@ -106,6 +123,8 @@ export default function GeneratorPage() {
           name: c.name.trim(),
           description: c.description.trim(),
           proportion: proportionFloats[i],
+          ...(c.model ? { model: c.model } : {}),
+          ...(c.provider ? { provider: c.provider } : {}),
         })),
         total_examples: totalExamples,
         temperature,
@@ -117,6 +136,7 @@ export default function GeneratorPage() {
         judge_threshold: judgeThreshold,
         conversation_turns: conversationTurns,
         judge_criteria: judgeCriteria,
+        ...(judgeProvider ? { judge_provider: judgeProvider } : {}),
         model_price_per_token: modelPricing
           ? (parseFloat(modelPricing.prompt) + parseFloat(modelPricing.completion)) / 2
           : 0,
@@ -166,7 +186,11 @@ export default function GeneratorPage() {
               Open <strong className="mx-1">Settings</strong> to enter your API key and select a model.
             </div>
           )}
-          <CategoryList categories={categories} onChange={setCategories} />
+          <CategoryList
+            categories={categories}
+            onChange={setCategories}
+            modelOptions={toGroupedOptions(modelList)}
+          />
         </div>
 
         {/* Right column — parameters (sticky on xl) */}
@@ -232,8 +256,10 @@ export default function GeneratorPage() {
 
       <SettingsDialog
         open={settingsOpen}
+        judgeProvider={judgeProvider}
         onModelPricingChange={setModelPricing}
         onJudgePricingChange={setJudgePricing}
+        onJudgeProviderChange={setJudgeProvider}
         onClose={() => {
           setSettingsOpen(false)
           // Re-sync config from backend after settings saved

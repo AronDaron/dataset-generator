@@ -9,6 +9,8 @@ class CategoryConfig(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: str = Field(..., min_length=10, max_length=1000)
     proportion: float = Field(..., gt=0.0, le=1.0)
+    model: str | None = None
+    provider: str | None = None
 
 
 class JobConfig(BaseModel):
@@ -28,6 +30,7 @@ class JobConfig(BaseModel):
     judge_criteria: str = Field(default="relevance, coherence, naturalness, and educational value")
     model_price_per_token: float = 0.0
     judge_price_per_token: float = 0.0
+    judge_provider: str | None = None
 
     @model_validator(mode="after")
     def proportions_sum_to_one(self) -> "JobConfig":
@@ -53,6 +56,7 @@ class JudgeStats(BaseModel):
     evaluated: int = 0
     accepted: int = 0
     rejected: int = 0
+    avg_score: float | None = None
 
 
 class ProgressJson(BaseModel):

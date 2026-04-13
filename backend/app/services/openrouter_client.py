@@ -27,6 +27,7 @@ async def chat_completion(
     max_tokens: int = 2048,
     max_retries: int = MAX_RETRIES,
     retry_cooldown: int = RETRY_COOLDOWN,
+    provider: str | None = None,
 ) -> dict[str, Any]:
     """Send a chat completion request to OpenRouter with retry logic.
 
@@ -40,12 +41,14 @@ async def chat_completion(
         "HTTP-Referer": "http://localhost",
         "X-Title": "DatasetGenerator",
     }
-    payload = {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if provider:
+        payload["provider"] = {"order": [provider], "allow_fallbacks": False}
     last_error: OpenRouterError | None = None
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
         for attempt in range(max_retries):

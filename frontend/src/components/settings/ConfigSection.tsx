@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SelectField, type SelectOption } from '@/components/ui/select'
 import { SliderField } from '@/components/ui/slider'
-import { getModels, type ModelOption } from '@/lib/api'
+import { getModels, getModelEndpoints, type ModelOption } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 interface ConfigSectionProps {
@@ -19,10 +19,12 @@ interface ConfigSectionProps {
   judgeModel: string
   judgeThreshold: number
   judgeCriteria: string
+  judgeProvider: string
   onJudgeEnabledChange: (enabled: boolean) => void
   onJudgeModelChange: (model: string) => void
   onJudgeThresholdChange: (threshold: number) => void
   onJudgeCriteriaChange: (criteria: string) => void
+  onJudgeProviderChange: (provider: string) => void
   onModelPricingChange?: (pricing: { prompt: string; completion: string } | undefined) => void
   onJudgePricingChange?: (pricing: { prompt: string; completion: string } | undefined) => void
 }
@@ -52,16 +54,20 @@ export function ConfigSection({
   judgeModel,
   judgeThreshold,
   judgeCriteria,
+  judgeProvider,
   onJudgeEnabledChange,
   onJudgeModelChange,
   onJudgeThresholdChange,
   onJudgeCriteriaChange,
+  onJudgeProviderChange,
   onModelPricingChange,
   onJudgePricingChange,
 }: ConfigSectionProps) {
   const [modelList, setModelList] = useState<ModelOption[]>([])
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelsError, setModelsError] = useState<string | null>(null)
+  const [judgeProviderOptions, setJudgeProviderOptions] = useState<SelectOption[]>([])
+  const [loadingJudgeProviders, setLoadingJudgeProviders] = useState(false)
 
   useEffect(() => {
     if (!hasApiKey) return
@@ -89,9 +95,39 @@ export function ConfigSection({
     onModelPricingChange?.(modelList.find((m) => m.id === value)?.pricing)
   }
 
+  // Lazy-fetch judge providers when judge model changes
+  useEffect(() => {
+    if (!judgeModel) { setJudgeProviderOptions([]); return }
+    let cancelled = false
+    setLoadingJudgeProviders(true)
+    getModelEndpoints(judgeModel)
+      .then((endpoints) => {
+        if (cancelled) return
+        const seen = new Set<string>()
+        const opts: SelectOption[] = endpoints
+          .filter((e) => {
+            if (!e.name || seen.has(e.name)) return false
+            seen.add(e.name)
+            return true
+          })
+          .map((e) => {
+            const displayName = e.provider_name || e.name
+            const parts: string[] = [displayName]
+            if (e.latency != null) parts.push(`${Math.round(e.latency)}ms`)
+            if (e.uptime_last_30m != null) parts.push(`${e.uptime_last_30m.toFixed(1)}% up`)
+            return { value: e.name, label: parts.join(' · ') }
+          })
+        setJudgeProviderOptions(opts)
+      })
+      .catch(() => { if (!cancelled) setJudgeProviderOptions([]) })
+      .finally(() => { if (!cancelled) setLoadingJudgeProviders(false) })
+    return () => { cancelled = true }
+  }, [judgeModel])
+
   const handleJudgeModelChange = (value: string) => {
     onJudgeModelChange(value)
     onJudgePricingChange?.(modelList.find((m) => m.id === value)?.pricing)
+    onJudgeProviderChange('')  // reset provider when model changes
   }
 
   return (
@@ -218,6 +254,19 @@ export function ConfigSection({
                 />
               )}
             </div>
+
+            {judgeModel && (loadingJudgeProviders || judgeProviderOptions.length > 0) && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Judge provider</label>
+                <SelectField
+                  value={judgeProvider}
+                  onChange={(val) => onJudgeProviderChange(val || '')}
+                  options={[{ value: '', label: '— Auto-select provider —' }, ...judgeProviderOptions]}
+                  placeholder="— Auto-select provider —"
+                  isLoading={loadingJudgeProviders}
+                />
+              </div>
+            )}
 
             <SliderField
               value={judgeThreshold}

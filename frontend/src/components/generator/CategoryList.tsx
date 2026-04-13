@@ -8,6 +8,7 @@ import {
   removeCategory,
   adjustProportion,
 } from '@/lib/proportions'
+import type { SelectOption } from '@/components/ui/select'
 
 // ---------- Preset categories ----------
 interface Preset {
@@ -89,9 +90,10 @@ function makeId(): string {
 interface CategoryListProps {
   categories: Category[]
   onChange: (categories: Category[]) => void
+  modelOptions?: SelectOption[]
 }
 
-export function CategoryList({ categories, onChange }: CategoryListProps) {
+export function CategoryList({ categories, onChange, modelOptions = [] }: CategoryListProps) {
   const isFull = categories.length >= 10
 
   // Check if a preset name is already active (by exact name match)
@@ -214,6 +216,7 @@ export function CategoryList({ categories, onChange }: CategoryListProps) {
                 index={i}
                 totalCategories={categories.length}
                 canRemove={true}
+                modelOptions={modelOptions}
                 onUpdate={handleUpdate}
                 onRemove={handleRemove}
                 onProportionChange={handleProportionChange}

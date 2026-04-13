@@ -31,6 +31,7 @@ _cancelled_jobs: set[str] = set()
 
 TOPIC_BATCH_SIZE = 10
 _judge_semaphore = asyncio.Semaphore(3)
+_gen_semaphore = asyncio.Semaphore(10)
 
 
 def cancel_job(job_id: str) -> None:
@@ -134,6 +135,7 @@ async def _generate_and_validate_example(
     temperature: float,
     max_tokens: int,
     retry_cooldown: int = 15,
+    provider: str | None = None,
 ) -> tuple[dict, int] | None:
     """
     Call LLM, parse JSON, validate token count.
@@ -156,6 +158,7 @@ async def _generate_and_validate_example(
                 max_tokens=max_tokens,
                 max_retries=1,  # pipeline-level retry handles failures; avoid 3×480s compounding
                 retry_cooldown=retry_cooldown,
+                provider=provider,
             )
         except Exception:
             if attempt == 0:
@@ -238,12 +241,13 @@ async def _generate_topics(
         try:
             response = await chat_completion(
                 api_key=api_key,
-                model=config.model,
+                model=cat.model or config.model,
                 messages=messages,
                 temperature=config.temperature,
                 max_tokens=min(2048, config.max_tokens),
                 max_retries=config.retry_count,
                 retry_cooldown=config.retry_cooldown,
+                provider=cat.provider,
             )
         except Exception:
             continue
@@ -269,18 +273,21 @@ async def _generate_outline(
     config: JobConfig,
     cat: CategoryConfig,
     topic: str,
+    model: str,
+    provider: str | None = None,
 ) -> list[str]:
     messages = build_outline_generation_prompt(cat.name, topic)
 
     try:
         response = await chat_completion(
             api_key=api_key,
-            model=config.model,
+            model=model,
             messages=messages,
             temperature=config.temperature,
             max_tokens=512,
             max_retries=config.retry_count,
             retry_cooldown=config.retry_cooldown,
+            provider=provider,
         )
     except Exception:
         return []
@@ -301,6 +308,7 @@ async def _judge_example(
     model: str,
     api_key: str,
     judge_criteria: str = "relevance, coherence, naturalness, and educational value",
+    provider: str | None = None,
 ) -> int | None:
     """Call LLM judge to rate an example on 0-100 scale. Returns int or None on failure."""
     judge_prompt = (
@@ -320,6 +328,7 @@ async def _judge_example(
             temperature=0.1,
             max_tokens=1024,  # reasoning models (Qwen3) need space for <think> block
             max_retries=1,    # fail fast — judge failure is non-fatal (returns None → auto-accept)
+            provider=provider,
         )
         parsed = _parse_json_response(_extract_content(response))
         score = parsed.get("score")
@@ -337,6 +346,8 @@ async def _generate_example(
     cat: CategoryConfig,
     topic: str,
     outline: list[str],
+    model: str,
+    provider: str | None = None,
 ) -> tuple[dict, int] | None:
     messages = build_example_generation_prompt(
         category_name=cat.name,
@@ -348,11 +359,12 @@ async def _generate_example(
     )
     return await _generate_and_validate_example(
         api_key=api_key,
-        model=config.model,
+        model=model,
         messages=messages,
         temperature=config.temperature,
         max_tokens=config.max_tokens,
         retry_cooldown=config.retry_cooldown,
+        provider=provider,
     )
 
 
@@ -365,12 +377,147 @@ async def _generate_example(
 MAX_ATTEMPTS_PER_EXAMPLE = 3
 
 
+async def _run_category(
+    cat: CategoryConfig,
+    count: int,
+    config: JobConfig,
+    api_key: str,
+    db: aiosqlite.Connection,
+    job_id: str,
+    progress: ProgressJson,
+    all_topics: dict[str, list[str]],
+    delay: float,
+) -> None:
+    """Run the generation loop for a single category (called via asyncio.gather)."""
+    cat_target = count
+    topic_queue: collections.deque[str] = collections.deque(
+        all_topics.get(cat.name, [])
+    )
+    max_attempts = cat_target * MAX_ATTEMPTS_PER_EXAMPLE
+    total_attempts = 0
+    effective_model = cat.model or config.model
+    effective_provider = cat.provider
+
+    while progress.categories[cat.name].completed < cat_target and total_attempts < max_attempts:
+        if is_cancelled(job_id):
+            raise _CancelledError()
+
+        # Queue empty but target not yet met — generate more topics on the fly
+        if not topic_queue:
+            needed = cat_target - progress.categories[cat.name].completed
+            logger.info(
+                "[job %s] Topics exhausted for '%s', generating %d more to reach target",
+                job_id, cat.name, needed,
+            )
+            extra = await _generate_topics(api_key, config, cat, min(TOPIC_BATCH_SIZE, needed))
+            topic_queue.extend(extra)
+            await asyncio.sleep(delay)
+            if not topic_queue:
+                logger.warning(
+                    "[job %s] Could not generate more topics for '%s' — stopping",
+                    job_id, cat.name,
+                )
+                break
+
+        total_attempts += 1
+        topic = topic_queue.popleft()
+        progress.current_category = cat.name
+        await _update_progress(db, job_id, "running", progress)
+
+        async with _gen_semaphore:
+            outline = await _generate_outline(
+                api_key, config, cat, topic, effective_model, effective_provider
+            )
+            await asyncio.sleep(delay)
+
+            if is_cancelled(job_id):
+                raise _CancelledError()
+
+            result = await _generate_example(
+                api_key, config, cat, topic, outline, effective_model, effective_provider
+            )
+            await asyncio.sleep(delay)
+
+        if result is None:
+            logger.warning(
+                "[job %s] Generation failed for '%s' (category '%s') — "
+                "retrying with next topic. Attempt %d/%d",
+                job_id, topic, cat.name, total_attempts, max_attempts,
+            )
+            progress.categories[cat.name].skipped += 1
+            progress.skipped += 1
+            await _update_progress(db, job_id, "running", progress)
+            continue
+
+        content, tokens = result
+        judge_score: int | None = None
+        save_this = True
+
+        if config.judge_enabled:
+            effective_judge_model = config.judge_model or config.model
+            if progress.judge_stats is None:
+                progress.judge_stats = JudgeStats()
+            accepted = False
+            MAX_JUDGE_RETRIES = 3
+
+            for attempt in range(MAX_JUDGE_RETRIES):
+                if is_cancelled(job_id):
+                    raise _CancelledError()
+                progress.judge_stats.evaluated += 1
+                async with _judge_semaphore:
+                    score = await _judge_example(
+                        content, config.format, effective_judge_model, api_key,
+                        judge_criteria=config.judge_criteria,
+                        provider=config.judge_provider,
+                    )
+                await asyncio.sleep(delay)
+
+                if score is None:
+                    accepted = True
+                    progress.judge_stats.accepted += 1
+                    break
+                if score >= config.judge_threshold:
+                    judge_score = score
+                    accepted = True
+                    progress.judge_stats.accepted += 1
+                    break
+                judge_score = score
+                if attempt == MAX_JUDGE_RETRIES - 1:
+                    progress.judge_stats.rejected += 1
+
+            if not accepted:
+                logger.warning(
+                    "[job %s] Judge rejected '%s' (score=%s < %d) — retrying with next topic",
+                    job_id, topic, judge_score, config.judge_threshold,
+                )
+                progress.categories[cat.name].skipped += 1
+                progress.skipped += 1
+                save_this = False
+
+        if save_this:
+            await _save_example(db, job_id, content, config.format, tokens, judge_score)
+            progress.categories[cat.name].completed += 1
+            progress.completed += 1
+
+        await _update_progress(db, job_id, "running", progress)
+
+    if progress.categories[cat.name].completed < cat_target:
+        logger.warning(
+            "[job %s] Category '%s': reached attempt limit (%d) — "
+            "achieved %d/%d examples",
+            job_id, cat.name, max_attempts,
+            progress.categories[cat.name].completed, cat_target,
+        )
+
+
 async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
     """
     Execute the full Plan-then-Execute pipeline for a job.
 
-    Stage 1: Generate topics per category (1 LLM call/category).
-    Stage 2+3: Loop until target is reached.
+    Stage 1: Generate topics per category (sequential, 1 LLM call/category).
+    Stage 2+3: All categories run in parallel via asyncio.gather.
+              _gen_semaphore(10) limits total concurrent generation API calls.
+              _judge_semaphore(3) limits concurrent judge calls.
             - Each failed example (generation error / judge rejection) is
               skipped and a fresh topic is tried immediately.
             - When all pre-generated topics are used up, new topics are
@@ -401,7 +548,7 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
     await _update_progress(db, job_id, "running", progress)
 
     try:
-        # ── Stage 1: Generate initial topics ─────────────────────────────
+        # ── Stage 1: Generate initial topics (sequential) ─────────────────
         all_topics: dict[str, list[str]] = {}
         for cat, count in zip(config.categories, counts):
             if is_cancelled(job_id):
@@ -413,123 +560,25 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
             all_topics[cat.name] = topics
             await asyncio.sleep(delay)
 
-        # ── Stage 2+3: Loop until target is reached ───────────────────────
+        # ── Stage 2+3: All categories in parallel ─────────────────────────
         progress.current_stage = "generating_examples"
         await _update_progress(db, job_id, "running", progress)
 
-        for cat, count in zip(config.categories, counts):
-            cat_target = count
-            topic_queue: collections.deque[str] = collections.deque(
-                all_topics.get(cat.name, [])
+        tasks = [
+            asyncio.create_task(
+                _run_category(cat, count, config, api_key, db, job_id, progress, all_topics, delay),
+                name=f"cat-{cat.name}",
             )
-            max_attempts = cat_target * MAX_ATTEMPTS_PER_EXAMPLE
-            total_attempts = 0
-
-            while progress.categories[cat.name].completed < cat_target and total_attempts < max_attempts:
-                if is_cancelled(job_id):
-                    raise _CancelledError()
-
-                # Queue empty but target not yet met — generate more topics on the fly
-                if not topic_queue:
-                    needed = cat_target - progress.categories[cat.name].completed
-                    logger.info(
-                        "[job %s] Topics exhausted for '%s', generating %d more to reach target",
-                        job_id, cat.name, needed,
-                    )
-                    extra = await _generate_topics(api_key, config, cat, min(TOPIC_BATCH_SIZE, needed))
-                    topic_queue.extend(extra)
-                    await asyncio.sleep(delay)
-                    if not topic_queue:
-                        # Topic generation itself failed
-                        logger.warning(
-                            "[job %s] Could not generate more topics for '%s' — stopping",
-                            job_id, cat.name,
-                        )
-                        break
-
-                total_attempts += 1
-                topic = topic_queue.popleft()
-                progress.current_category = cat.name
-                await _update_progress(db, job_id, "running", progress)
-
-                outline = await _generate_outline(api_key, config, cat, topic)
-                await asyncio.sleep(delay)
-
-                if is_cancelled(job_id):
-                    raise _CancelledError()
-
-                result = await _generate_example(api_key, config, cat, topic, outline)
-                await asyncio.sleep(delay)
-
-                if result is None:
-                    logger.warning(
-                        "[job %s] Generation failed for '%s' (category '%s') — "
-                        "retrying with next topic. Attempt %d/%d",
-                        job_id, topic, cat.name, total_attempts, max_attempts,
-                    )
-                    progress.categories[cat.name].skipped += 1
-                    progress.skipped += 1
-                    await _update_progress(db, job_id, "running", progress)
-                    continue
-
-                content, tokens = result
-                judge_score: int | None = None
-                save_this = True
-
-                if config.judge_enabled:
-                    effective_judge_model = config.judge_model or config.model
-                    if progress.judge_stats is None:
-                        progress.judge_stats = JudgeStats()
-                    accepted = False
-                    MAX_JUDGE_RETRIES = 3
-
-                    for attempt in range(MAX_JUDGE_RETRIES):
-                        if is_cancelled(job_id):
-                            raise _CancelledError()
-                        progress.judge_stats.evaluated += 1
-                        async with _judge_semaphore:
-                            score = await _judge_example(
-                                content, config.format, effective_judge_model, api_key,
-                                judge_criteria=config.judge_criteria,
-                            )
-                        await asyncio.sleep(delay)
-
-                        if score is None:
-                            accepted = True
-                            progress.judge_stats.accepted += 1
-                            break
-                        if score >= config.judge_threshold:
-                            judge_score = score
-                            accepted = True
-                            progress.judge_stats.accepted += 1
-                            break
-                        judge_score = score
-                        if attempt == MAX_JUDGE_RETRIES - 1:
-                            progress.judge_stats.rejected += 1
-
-                    if not accepted:
-                        logger.warning(
-                            "[job %s] Judge rejected '%s' (score=%s < %d) — retrying with next topic",
-                            job_id, topic, judge_score, config.judge_threshold,
-                        )
-                        progress.categories[cat.name].skipped += 1
-                        progress.skipped += 1
-                        save_this = False
-
-                if save_this:
-                    await _save_example(db, job_id, content, config.format, tokens, judge_score)
-                    progress.categories[cat.name].completed += 1
-                    progress.completed += 1
-
-                await _update_progress(db, job_id, "running", progress)
-
-            if progress.categories[cat.name].completed < cat_target:
-                logger.warning(
-                    "[job %s] Category '%s': reached attempt limit (%d) — "
-                    "achieved %d/%d examples",
-                    job_id, cat.name, max_attempts,
-                    progress.categories[cat.name].completed, cat_target,
-                )
+            for cat, count in zip(config.categories, counts)
+        ]
+        try:
+            await asyncio.gather(*tasks)
+        except Exception:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
         progress.current_stage = "completed"
         logger.info(
@@ -551,6 +600,15 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
             progress.judge_cost = (
                 progress.judge_stats.evaluated * _AVG_JUDGE_TOKENS * config.judge_price_per_token
             )
+
+        # Avg judge score — AVG(judge_score) dla zakończonego joba
+        if config.judge_enabled and progress.judge_stats:
+            async with db.execute(
+                "SELECT AVG(judge_score) FROM examples WHERE job_id = ? AND judge_score IS NOT NULL",
+                (job_id,),
+            ) as cur:
+                row = await cur.fetchone()
+            progress.judge_stats.avg_score = round(row[0], 1) if row[0] is not None else None
 
         await _update_progress(db, job_id, "completed", progress)
         try:

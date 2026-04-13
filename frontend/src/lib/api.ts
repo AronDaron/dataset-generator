@@ -28,6 +28,8 @@ export interface CategoryConfig {
   name: string
   description: string
   proportion: number
+  model?: string
+  provider?: string
 }
 
 export interface JobConfig {
@@ -45,6 +47,7 @@ export interface JobConfig {
   judge_criteria?: string
   model_price_per_token?: number
   judge_price_per_token?: number
+  judge_provider?: string
 }
 
 export interface JobCreatedResponse {
@@ -124,6 +127,7 @@ export interface JudgeStats {
   evaluated: number
   accepted: number
   rejected: number
+  avg_score?: number | null
 }
 
 export interface ProgressJson {
@@ -152,6 +156,25 @@ export interface SSEProgressPayload {
   status: string
   progress: ProgressJson | null
   examples: SSEExample[]
+}
+
+export interface ModelEndpoint {
+  name: string
+  context_length?: number
+  pricing?: { prompt: string; completion: string; request: string }
+  provider_name?: string
+  quantization?: string
+  max_completion_tokens?: number | null
+  uptime_last_30m?: number
+  latency?: number | null
+  throughput?: number | null
+}
+
+export async function getModelEndpoints(modelId: string): Promise<ModelEndpoint[]> {
+  const data = await request<{ data?: { endpoints?: ModelEndpoint[] } }>(
+    `/api/openrouter/models/${encodeURIComponent(modelId)}/endpoints`
+  )
+  return data?.data?.endpoints ?? []
 }
 
 // ---- New API functions ----

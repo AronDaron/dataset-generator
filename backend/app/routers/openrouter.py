@@ -1,10 +1,11 @@
 from typing import Any
 
 import aiosqlite
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.database import get_db
-from app.services.openrouter_client import OpenRouterError, chat_completion, list_models
+from app.services.openrouter_client import OPENROUTER_BASE_URL, OpenRouterError, chat_completion, list_models
 
 router = APIRouter()
 
@@ -37,6 +38,23 @@ async def get_models(db: aiosqlite.Connection = Depends(get_db)) -> dict[str, An
     except OpenRouterError as e:
         raise _openrouter_error_to_http(e)
     return {"models": models}
+
+
+@router.get("/models/{model_id:path}/endpoints")
+async def get_model_endpoints(model_id: str, db: aiosqlite.Connection = Depends(get_db)) -> Any:
+    api_key = await _get_api_key(db)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.get(
+            f"{OPENROUTER_BASE_URL}/models/{model_id}/endpoints",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": "http://localhost",
+                "X-Title": "DatasetGenerator",
+            },
+        )
+    if r.status_code != 200:
+        raise HTTPException(status_code=r.status_code, detail=r.text)
+    return r.json()
 
 
 @router.post("/test")

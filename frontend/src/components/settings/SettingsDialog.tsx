@@ -13,7 +13,9 @@ interface SettingsDialogProps {
   open: boolean
   onClose: () => void
   model: string
+  judgeProvider?: string
   onModelChange: (model: string) => void
+  onJudgeProviderChange?: (provider: string) => void
   onModelPricingChange?: (pricing: { prompt: string; completion: string } | undefined) => void
   onJudgePricingChange?: (pricing: { prompt: string; completion: string } | undefined) => void
 }
@@ -22,7 +24,9 @@ export function SettingsDialog({
   open,
   onClose,
   model,
+  judgeProvider: judgeProviderProp = '',
   onModelChange,
+  onJudgeProviderChange,
   onModelPricingChange,
   onJudgePricingChange,
 }: SettingsDialogProps) {
@@ -36,6 +40,7 @@ export function SettingsDialog({
   const [judgeModel, setJudgeModel] = useState('')
   const [judgeThreshold, setJudgeThreshold] = useState(80)
   const [judgeCriteria, setJudgeCriteria] = useState('relevance, coherence, naturalness, and educational value')
+  const [judgeProvider, setJudgeProvider] = useState(judgeProviderProp)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -46,6 +51,7 @@ export function SettingsDialog({
     setSaveError(null)
     setSaveSuccess(false)
     setLocalModel(model)
+    setJudgeProvider(judgeProviderProp)
 
     Promise.all([getApiKey(), getConfig()])
       .then(([keyStatus, config]) => {
@@ -83,6 +89,7 @@ export function SettingsDialog({
         judge_criteria: judgeCriteria,
       })
       onModelChange(localModel)
+      onJudgeProviderChange?.(judgeProvider)
       setSaveSuccess(true)
       setTimeout(() => {
         setSaveSuccess(false)
@@ -145,10 +152,12 @@ export function SettingsDialog({
               judgeModel={judgeModel}
               judgeThreshold={judgeThreshold}
               judgeCriteria={judgeCriteria}
+              judgeProvider={judgeProvider}
               onJudgeEnabledChange={setJudgeEnabled}
               onJudgeModelChange={setJudgeModel}
               onJudgeThresholdChange={setJudgeThreshold}
               onJudgeCriteriaChange={setJudgeCriteria}
+              onJudgeProviderChange={setJudgeProvider}
               onModelPricingChange={onModelPricingChange}
               onJudgePricingChange={onJudgePricingChange}
             />
