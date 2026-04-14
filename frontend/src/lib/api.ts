@@ -61,8 +61,18 @@ async function request<T>(
 ): Promise<T> {
   const res = await fetch(path, options)
   if (!res.ok) {
-    const text = await res.text().catch(() => `HTTP ${res.status}`)
-    throw new Error(text || `HTTP ${res.status}`)
+    let message = `HTTP ${res.status}`
+    try {
+      const body = await res.json()
+      if (typeof body?.detail === 'string') {
+        message = body.detail
+      } else if (Array.isArray(body?.detail)) {
+        message = (body.detail as Array<{ msg: string }>).map((e) => e.msg).join(', ')
+      }
+    } catch {
+      message = await res.text().catch(() => `HTTP ${res.status}`) || `HTTP ${res.status}`
+    }
+    throw new Error(message)
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>

@@ -58,6 +58,7 @@ export default function GeneratorPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [createdJobId, setCreatedJobId] = useState<string | null>(null)
+  const [activeJobThreshold, setActiveJobThreshold] = useState(80)
 
   // Persist active job across page reloads (e.g. HMR or accidental refresh)
   const SESSION_KEY = 'activeJobId'
@@ -146,6 +147,7 @@ export default function GeneratorPage() {
           ? (parseFloat(judgePricing.prompt) + parseFloat(judgePricing.completion)) / 2
           : 0,
       })
+      setActiveJobThreshold(judgeThreshold)
       updateJobId(result.id)
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Unknown error.')
@@ -198,7 +200,7 @@ export default function GeneratorPage() {
         {/* Right column — parameters (sticky on xl) */}
         <div className="space-y-5 xl:sticky xl:top-20 xl:self-start">
           {createdJobId ? (
-            <JobDashboard jobId={createdJobId} onReset={() => updateJobId(null)} judgeThreshold={judgeThreshold} />
+            <JobDashboard jobId={createdJobId} onReset={() => updateJobId(null)} judgeThreshold={activeJobThreshold} />
           ) : (
             <>
               <GlobalControls

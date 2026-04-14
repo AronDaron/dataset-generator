@@ -69,33 +69,21 @@ const PRESETS: Preset[] = [
   },
 ]
 
-// Tailwind bg classes for segment bar / category dots
-export const CATEGORY_COLORS = [
-  'bg-blue-400',
-  'bg-emerald-400',
-  'bg-violet-400',
-  'bg-amber-400',
-  'bg-rose-400',
-  'bg-cyan-400',
-  'bg-orange-400',
-  'bg-pink-400',
-  'bg-teal-400',
-  'bg-indigo-400',
+const CATEGORY_PALETTE = [
+  { tailwind: 'bg-blue-400',    hex: '#60a5fa' },
+  { tailwind: 'bg-emerald-400', hex: '#34d399' },
+  { tailwind: 'bg-violet-400',  hex: '#a78bfa' },
+  { tailwind: 'bg-amber-400',   hex: '#fbbf24' },
+  { tailwind: 'bg-rose-400',    hex: '#fb7185' },
+  { tailwind: 'bg-cyan-400',    hex: '#22d3ee' },
+  { tailwind: 'bg-orange-400',  hex: '#fb923c' },
+  { tailwind: 'bg-pink-400',    hex: '#f472b6' },
+  { tailwind: 'bg-teal-400',    hex: '#2dd4bf' },
+  { tailwind: 'bg-indigo-400',  hex: '#818cf8' },
 ]
 
-// Hex values matching CATEGORY_COLORS (for inline border / glow styles)
-export const CATEGORY_COLOR_HEX = [
-  '#60a5fa', // blue-400
-  '#34d399', // emerald-400
-  '#a78bfa', // violet-400
-  '#fbbf24', // amber-400
-  '#fb7185', // rose-400
-  '#22d3ee', // cyan-400
-  '#fb923c', // orange-400
-  '#f472b6', // pink-400
-  '#2dd4bf', // teal-400
-  '#818cf8', // indigo-400
-]
+export const CATEGORY_COLORS    = CATEGORY_PALETTE.map((c) => c.tailwind)
+export const CATEGORY_COLOR_HEX = CATEGORY_PALETTE.map((c) => c.hex)
 
 function makeId(): string {
   return crypto.randomUUID()

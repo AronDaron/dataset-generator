@@ -51,10 +51,15 @@ async def get_model_endpoints(model_id: str, db: aiosqlite.Connection = Depends(
 @router.post("/test")
 async def test_connection(db: aiosqlite.Connection = Depends(get_db)) -> dict[str, str]:
     api_key = await _get_api_key(db)
+    async with await db.execute(
+        "SELECT value FROM settings WHERE key = 'default_model'"
+    ) as cursor:
+        row = await cursor.fetchone()
+    model = row["value"] if row and row["value"] else "openai/gpt-4o-mini"
     try:
         await chat_completion(
             api_key=api_key,
-            model="openai/gpt-3.5-turbo",
+            model=model,
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=1,
         )
