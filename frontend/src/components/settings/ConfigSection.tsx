@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { SelectField, type SelectOption } from '@/components/ui/select'
 import { SliderField } from '@/components/ui/slider'
 import { getModels, getModelEndpoints, type ModelOption } from '@/lib/api'
-import { getProviderIcon } from '@/lib/provider-icons'
+import { toGroupedOptions } from '@/lib/model-utils'
 import { cn } from '@/lib/utils'
 
 interface ConfigSectionProps {
@@ -27,20 +27,6 @@ interface ConfigSectionProps {
   onJudgeProviderChange: (provider: string) => void
   onModelPricingChange?: (pricing: { prompt: string; completion: string } | undefined) => void
   onJudgePricingChange?: (pricing: { prompt: string; completion: string } | undefined) => void
-}
-
-function toGroupedOptions(list: ModelOption[]): SelectOption[] {
-  return [...list]
-    .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id))
-    .map((m) => {
-      const prefix = m.id.split('/')[0]
-      return {
-        value: m.id,
-        label: m.name || m.id,
-        group: prefix.charAt(0).toUpperCase() + prefix.slice(1),
-        icon: getProviderIcon(m.id),
-      }
-    })
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {

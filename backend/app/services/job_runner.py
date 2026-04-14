@@ -425,15 +425,16 @@ async def _run_category(
             outline = await _generate_outline(
                 api_key, config, cat, topic, effective_model, effective_provider
             )
-            await asyncio.sleep(delay)
+        await asyncio.sleep(delay)
 
-            if is_cancelled(job_id):
-                raise _CancelledError()
+        if is_cancelled(job_id):
+            raise _CancelledError()
 
+        async with _gen_semaphore:
             result = await _generate_example(
                 api_key, config, cat, topic, outline, effective_model, effective_provider
             )
-            await asyncio.sleep(delay)
+        await asyncio.sleep(delay)
 
         if result is None:
             logger.warning(

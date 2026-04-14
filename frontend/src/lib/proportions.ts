@@ -113,8 +113,14 @@ export function adjustProportion(
 // Convert integer proportions to floats summing to exactly 1.0.
 // A rounding correction is applied to the last element.
 export function toApiProportions(categories: Category[]): number[] {
+  const sum = categories.reduce((s, c) => s + c.proportion, 0)
+  if (sum !== 100) {
+    // Nie powinno się zdarzyć — UI zawsze maintainuje sumę 100
+    // Defensywna normalizacja zamiast wysłania ujemnej wartości do backendu
+    return categories.map((c) => c.proportion / sum)
+  }
   const floats = categories.map((c) => c.proportion / 100)
-  const sum = floats.reduce((a, b) => a + b, 0)
-  floats[floats.length - 1] += 1.0 - sum
+  // Korekta błędu precyzji float dla ostatniego elementu
+  floats[floats.length - 1] = 1.0 - floats.slice(0, -1).reduce((a, b) => a + b, 0)
   return floats
 }
