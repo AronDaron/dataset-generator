@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from typing import AsyncGenerator, Optional
+
+logger = logging.getLogger(__name__)
 
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from app.config import settings
 from app.database import get_db
 from app.utils import get_api_key as _get_api_key, now_iso as _now_iso
 from app.models.jobs import (
@@ -54,9 +58,14 @@ def _row_to_job_response(row) -> JobResponse:
 def _row_to_list_item(row) -> JobListItem:
     config = _parse_config(row)
     completed = 0
+    actual_cost = None
+    judge_cost = None
     progress = _parse_progress(row)
     if progress:
         completed = progress.completed
+        actual_cost = progress.actual_cost
+        judge_cost = progress.judge_cost
+    category_models = [cat.model or config.model for cat in config.categories]
     return JobListItem(
         id=row["id"],
         status=row["status"],
@@ -64,8 +73,11 @@ def _row_to_list_item(row) -> JobListItem:
         completed=completed,
         format=config.format,
         model=config.model,
+        category_models=category_models,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        actual_cost=actual_cost,
+        judge_cost=judge_cost,
     )
 
 
@@ -164,29 +176,45 @@ async def get_job(
 
 
 @router.delete("/{job_id}", status_code=204)
-async def cancel_job_endpoint(
+async def delete_job_endpoint(
     job_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> None:
-    """Signal a running job to stop at its next cancellation checkpoint."""
+    """Cancel a running job, or hard-delete a terminal job from the database."""
     async with await db.execute(
         "SELECT status FROM jobs WHERE id = ?", (job_id,)
     ) as cursor:
         row = await cursor.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
-    if row["status"] not in ("pending", "running"):
-        raise HTTPException(
-            status_code=409, detail=f"Job is already {row['status']}"
-        )
 
-    cancel_job(job_id)
-    now = _now_iso()
-    await db.execute(
-        "UPDATE jobs SET status = 'cancelling', updated_at = ? WHERE id = ?",
-        (now, job_id),
-    )
-    await db.commit()
+    status = row["status"]
+
+    if status in ("pending", "running"):
+        cancel_job(job_id)
+        now = _now_iso()
+        await db.execute(
+            "UPDATE jobs SET status = 'cancelling', updated_at = ? WHERE id = ?",
+            (now, job_id),
+        )
+        await db.commit()
+
+    elif status in ("completed", "cancelled", "failed"):
+        await db.execute("DELETE FROM examples WHERE job_id = ?", (job_id,))
+        await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        await db.commit()
+        jsonl_path = settings.datasets_dir / f"{job_id}.jsonl"
+        logger.info("Deleting JSONL file: %s (exists=%s)", jsonl_path, jsonl_path.exists())
+        try:
+            jsonl_path.unlink(missing_ok=True)
+            logger.info("JSONL file deleted: %s", jsonl_path)
+        except Exception:
+            logger.exception("Failed to delete JSONL file: %s", jsonl_path)
+
+    else:
+        raise HTTPException(
+            status_code=409, detail=f"Job is currently {status}, try again shortly"
+        )
 
 
 async def _stream_job_progress(

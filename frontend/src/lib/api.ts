@@ -206,3 +206,25 @@ export async function openDatasetsFolder(): Promise<void> {
 export async function testConnection(): Promise<{ status: string }> {
   return request<{ status: string }>('/api/openrouter/test', { method: 'POST' })
 }
+
+export interface JobListItem {
+  id: string
+  status: string
+  total_examples: number
+  completed: number
+  format: string
+  model: string
+  category_models: string[]
+  created_at: string
+  updated_at: string
+  actual_cost?: number | null
+  judge_cost?: number | null
+}
+
+export async function getJobs(): Promise<JobListItem[]> {
+  return request<JobListItem[]>('/api/jobs')
+}
+
+export async function deleteJob(jobId: string): Promise<void> {
+  await request(`/api/jobs/${jobId}`, { method: 'DELETE' })
+}

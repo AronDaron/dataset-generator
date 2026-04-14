@@ -94,8 +94,11 @@ class JobListItem(BaseModel):
     completed: int
     format: str
     model: str
+    category_models: List[str] = Field(default_factory=list)
     created_at: str
     updated_at: str
+    actual_cost: float | None = None
+    judge_cost: float | None = None
 
 
 class ExampleResponse(BaseModel):

@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Settings2, Rocket, AlertCircle } from 'lucide-react'
+import Link from 'next/link'
+import { Settings2, Rocket, AlertCircle, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SettingsDialog } from '@/components/settings/SettingsDialog'
 import { CategoryList } from '@/components/generator/CategoryList'
@@ -157,6 +158,12 @@ export default function GeneratorPage() {
                 {model}
               </span>
             )}
+            <Link href="/history">
+              <Button variant="outline" size="sm">
+                <History className="size-4" />
+                History
+              </Button>
+            </Link>
             <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
               <Settings2 className="size-4" />
               Settings
