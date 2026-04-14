@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Trash2, AlertCircle, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { saveApiKey, deleteApiKey } from '@/lib/api'
+import { saveApiKey, deleteApiKey, testConnection } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 interface ApiKeySectionProps {
@@ -21,6 +21,8 @@ export function ApiKeySection({
   const [showInput, setShowInput] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<'ok' | 'fail' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function handleSave() {
@@ -37,6 +39,19 @@ export function ApiKeySection({
       setError(err instanceof Error ? err.message : 'Failed to save key')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleTest() {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      await testConnection()
+      setTestResult('ok')
+    } catch {
+      setTestResult('fail')
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -69,6 +84,15 @@ export function ApiKeySection({
             <span className="font-mono text-sm text-muted-foreground truncate">{keyPreview ?? '…'}</span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
+            {testResult === 'ok' && (
+              <span className="text-xs text-emerald-400">OK ✓</span>
+            )}
+            {testResult === 'fail' && (
+              <span className="text-xs text-red-400">Failed — check key</span>
+            )}
+            <Button variant="ghost" size="sm" onClick={handleTest} disabled={testing}>
+              {testing ? 'Testing…' : 'Test'}
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => setShowInput(true)}>
               Change
             </Button>

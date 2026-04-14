@@ -69,6 +69,7 @@ export function GlobalControls({
                 step={128}
                 label="Max tokens"
                 displayValue={maxTokens.toLocaleString('en-US')}
+                hint="Approximate — actual count varies ±15–30% depending on the model"
               />
             </div>
 

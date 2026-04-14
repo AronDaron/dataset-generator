@@ -1,5 +1,7 @@
 'use client'
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000'
+
 import { useEffect, useState } from 'react'
 import { CheckCircle2, AlertCircle, XCircle, FolderOpen, RotateCcw, StopCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -133,7 +135,7 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
   const [isOpeningFolder, setIsOpeningFolder] = useState(false)
 
   useEffect(() => {
-    const es = new EventSource(`http://localhost:8000/api/jobs/${jobId}/stream`)
+    const es = new EventSource(`${BACKEND_URL}/api/jobs/${jobId}/stream`)
 
     function handleEvent(e: MessageEvent) {
       try {

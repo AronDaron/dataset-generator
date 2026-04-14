@@ -1,5 +1,6 @@
 'use client'
 
+import { Info } from 'lucide-react'
 import { Slider } from '@base-ui/react/slider'
 import { cn } from '@/lib/utils'
 
@@ -11,6 +12,7 @@ interface SliderFieldProps {
   step: number
   label?: string
   sublabel?: string
+  hint?: string
   displayValue?: string
   className?: string
   disabled?: boolean
@@ -24,6 +26,7 @@ export function SliderField({
   step,
   label,
   sublabel,
+  hint,
   displayValue,
   className,
   disabled,
@@ -32,7 +35,14 @@ export function SliderField({
     <div className={cn('space-y-2', className)}>
       {(label || displayValue !== undefined) && (
         <div className="flex items-center justify-between text-sm">
-          <span className="font-medium">{label}</span>
+          <span className="flex items-center gap-1.5 font-medium">
+            {label}
+            {hint && (
+              <span title={hint} className="cursor-help">
+                <Info className="size-3 text-muted-foreground/40" />
+              </span>
+            )}
+          </span>
           <span className="rounded-md border border-white/8 bg-white/5 px-1.5 py-0.5 font-mono text-xs tabular-nums text-foreground/80">
             {displayValue ?? value}
           </span>

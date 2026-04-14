@@ -78,25 +78,19 @@ async def create_job(
     api_key = await _get_api_key(db)
 
     # Resolve delay, retry_count, retry_cooldown from global settings if not provided in body
+    keys = ('delay_between_requests', 'retry_count', 'retry_cooldown')
+    placeholders = ','.join('?' * len(keys))
+    async with await db.execute(
+        f"SELECT key, value FROM settings WHERE key IN ({placeholders})", keys
+    ) as cursor:
+        rows = await cursor.fetchall()
+    s = {row["key"]: row["value"] for row in rows}
+
     resolved_delay = body.delay_between_requests
     if resolved_delay is None:
-        async with await db.execute(
-            "SELECT value FROM settings WHERE key = 'delay_between_requests'"
-        ) as cursor:
-            row = await cursor.fetchone()
-        resolved_delay = float(row["value"]) if row else 2.0
-
-    async with await db.execute(
-        "SELECT value FROM settings WHERE key = 'retry_count'"
-    ) as cursor:
-        row = await cursor.fetchone()
-    resolved_retry_count = int(row["value"]) if row else 3
-
-    async with await db.execute(
-        "SELECT value FROM settings WHERE key = 'retry_cooldown'"
-    ) as cursor:
-        row = await cursor.fetchone()
-    resolved_retry_cooldown = int(row["value"]) if row else 15
+        resolved_delay = float(s.get("delay_between_requests") or 2.0)
+    resolved_retry_count = int(s.get("retry_count") or 3)
+    resolved_retry_cooldown = int(s.get("retry_cooldown") or 15)
 
     config = body.model_copy(update={
         "delay_between_requests": resolved_delay,

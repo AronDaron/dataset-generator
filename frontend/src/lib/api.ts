@@ -202,3 +202,7 @@ export async function cancelJob(jobId: string): Promise<void> {
 export async function openDatasetsFolder(): Promise<void> {
   await request<{ path: string }>('/api/datasets/open-folder', { method: 'POST' })
 }
+
+export async function testConnection(): Promise<{ status: string }> {
+  return request<{ status: string }>('/api/openrouter/test', { method: 'POST' })
+}
