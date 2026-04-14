@@ -19,3 +19,4 @@ frontend/.env*.local
 tests/*
 test*
 Fixy-todo*
+*.md

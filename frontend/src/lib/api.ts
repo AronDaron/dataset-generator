@@ -16,6 +16,7 @@ export interface GlobalConfig {
   judge_threshold: number
   conversation_turns: number
   judge_criteria: string
+  judge_provider?: string
 }
 
 export interface ModelOption {

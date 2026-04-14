@@ -20,7 +20,7 @@ from app.models.jobs import (
     ProgressJson,
 )
 from app.services.export_service import export_job
-from app.services.job_runner import cancel_job, run_job
+from app.services.job_runner import cancel_job, distribute_examples, run_job
 
 router = APIRouter()
 
@@ -108,14 +108,15 @@ async def create_job(
     now = _now_iso()
     config_json = config.model_dump_json()
 
+    counts = distribute_examples(config.categories, config.total_examples)
     initial_progress = ProgressJson(
         total_examples=config.total_examples,
         completed=0,
         skipped=0,
         current_stage="pending",
         categories={
-            c.name: CategoryProgress(target=0, completed=0, skipped=0)
-            for c in config.categories
+            c.name: CategoryProgress(target=n, completed=0, skipped=0)
+            for c, n in zip(config.categories, counts)
         },
     )
 

@@ -83,6 +83,7 @@ export default function GeneratorPage() {
         setJudgeThreshold(config.judge_threshold)
         setConversationTurns(config.conversation_turns)
         setJudgeCriteria(config.judge_criteria)
+        setJudgeProvider(config.judge_provider ?? '')
         if (!keyStatus.has_key) setSettingsOpen(true)
         else getModels().then(setModelList).catch(() => {/* non-fatal */})
       })
@@ -273,7 +274,14 @@ export default function GeneratorPage() {
             setJudgeThreshold(config.judge_threshold)
             setConversationTurns(config.conversation_turns)
             setJudgeCriteria(config.judge_criteria)
+            setJudgeProvider(config.judge_provider ?? '')
           }).catch(() => {/* non-fatal */})
+          // Re-fetch models if list is empty (e.g. after adding API key for the first time)
+          if (modelList.length === 0) {
+            getApiKey().then((status) => {
+              if (status.has_key) getModels().then(setModelList).catch(() => {})
+            }).catch(() => {})
+          }
         }}
         model={model}
         onModelChange={setModel}

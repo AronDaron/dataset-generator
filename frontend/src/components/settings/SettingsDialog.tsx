@@ -87,6 +87,7 @@ export function SettingsDialog({
         judge_model: judgeModel,
         judge_threshold: judgeThreshold,
         judge_criteria: judgeCriteria,
+        judge_provider: judgeProvider,
       })
       onModelChange(localModel)
       onJudgeProviderChange?.(judgeProvider)
