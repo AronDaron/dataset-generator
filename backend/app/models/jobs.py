@@ -24,7 +24,7 @@ class JobConfig(BaseModel):
     retry_count: int = Field(default=3, ge=1, le=10)
     retry_cooldown: int = Field(default=15, ge=1, le=120)
     judge_enabled: bool = False
-    judge_model: str = ""
+    judge_model: Optional[str] = None
     judge_threshold: int = Field(default=80, ge=0, le=100)
     conversation_turns: int = Field(default=2, ge=1, le=5)
     judge_criteria: str = Field(default="relevance, coherence, naturalness, and educational value")

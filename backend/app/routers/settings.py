@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from typing import Optional
 
 import aiosqlite
@@ -6,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.database import get_db
+from app.utils import now_iso as _now_iso
 
 router = APIRouter()
 
@@ -42,14 +42,11 @@ class GlobalConfig(BaseModel):
     retry_cooldown: int = Field(default=15, ge=1, le=120)
     default_model: str = Field(default="openai/gpt-3.5-turbo")
     judge_enabled: bool = False
-    judge_model: str = Field(default="")
+    judge_model: Optional[str] = None
     judge_threshold: int = Field(default=80, ge=0, le=100)
     conversation_turns: int = Field(default=2, ge=1, le=5)
     judge_criteria: str = Field(default="relevance, coherence, naturalness, and educational value")
 
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @router.post("/api-key", status_code=204)
@@ -89,20 +86,20 @@ async def delete_api_key(db: aiosqlite.Connection = Depends(get_db)) -> None:
 
 @router.get("/config", response_model=GlobalConfig)
 async def get_config(db: aiosqlite.Connection = Depends(get_db)) -> GlobalConfig:
-    values: dict[str, str] = {}
-    for key in CONFIG_KEYS:
-        async with await db.execute(
-            "SELECT value FROM settings WHERE key = ?", (key,)
-        ) as cursor:
-            row = await cursor.fetchone()
-        values[key] = row["value"] if row else CONFIG_DEFAULTS[key]
+    placeholders = ",".join("?" * len(CONFIG_KEYS))
+    async with await db.execute(
+        f"SELECT key, value FROM settings WHERE key IN ({placeholders})",
+        CONFIG_KEYS,
+    ) as cursor:
+        rows = await cursor.fetchall()
+    values: dict[str, str] = {**CONFIG_DEFAULTS, **{row["key"]: row["value"] for row in rows}}
     return GlobalConfig(
         delay_between_requests=float(values["delay_between_requests"]),
         retry_count=int(values["retry_count"]),
         retry_cooldown=int(values["retry_cooldown"]),
         default_model=values["default_model"],
         judge_enabled=values["judge_enabled"].lower() == "true",
-        judge_model=values["judge_model"],
+        judge_model=values["judge_model"] or None,
         judge_threshold=int(values["judge_threshold"]),
         conversation_turns=int(values["conversation_turns"]),
         judge_criteria=values["judge_criteria"],
@@ -120,7 +117,7 @@ async def update_config(
         "retry_cooldown": str(body.retry_cooldown),
         "default_model": body.default_model,
         "judge_enabled": "true" if body.judge_enabled else "false",
-        "judge_model": body.judge_model,
+        "judge_model": body.judge_model or "",
         "judge_threshold": str(body.judge_threshold),
         "conversation_turns": str(body.conversation_turns),
         "judge_criteria": body.judge_criteria,

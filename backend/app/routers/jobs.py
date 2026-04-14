@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional
 
 import aiosqlite
@@ -11,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.database import get_db
+from app.utils import get_api_key as _get_api_key, now_iso as _now_iso
 from app.models.jobs import (
     CategoryProgress,
     ExampleResponse,
@@ -23,20 +23,6 @@ from app.services.export_service import export_job
 from app.services.job_runner import cancel_job, run_job
 
 router = APIRouter()
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-async def _get_api_key(db: aiosqlite.Connection) -> str:
-    async with await db.execute(
-        "SELECT value FROM settings WHERE key = 'openrouter_api_key'"
-    ) as cursor:
-        row = await cursor.fetchone()
-    if not row:
-        raise HTTPException(status_code=422, detail="OpenRouter API key not configured")
-    return row["value"]
 
 
 def _parse_progress(row) -> Optional[ProgressJson]:

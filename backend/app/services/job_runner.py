@@ -6,12 +6,12 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 import aiosqlite
 
 from app.models.jobs import CategoryConfig, CategoryProgress, JobConfig, JudgeStats, ProgressJson
+from app.utils import now_iso as _now_iso
 from app.services.export_service import export_job
 from app.services.openrouter_client import OpenRouterError, chat_completion
 from app.services.prompt_builder import (
@@ -54,8 +54,6 @@ class _CancelledError(Exception):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def distribute_examples(categories: list[CategoryConfig], total: int) -> list[int]:

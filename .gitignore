@@ -15,3 +15,7 @@ frontend/.env*.local
 # System
 .DS_Store
 *.log
+
+tests/*
+test*
+Fixy-todo*

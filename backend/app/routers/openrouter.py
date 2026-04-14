@@ -6,18 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.database import get_db
 from app.services.openrouter_client import OPENROUTER_BASE_URL, OpenRouterError, chat_completion, list_models
+from app.utils import get_api_key as _get_api_key
 
 router = APIRouter()
-
-
-async def _get_api_key(db: aiosqlite.Connection) -> str:
-    async with await db.execute(
-        "SELECT value FROM settings WHERE key = 'openrouter_api_key'"
-    ) as cursor:
-        row = await cursor.fetchone()
-    if not row:
-        raise HTTPException(status_code=422, detail="API key not configured")
-    return row["value"]
 
 
 def _openrouter_error_to_http(e: OpenRouterError) -> HTTPException:

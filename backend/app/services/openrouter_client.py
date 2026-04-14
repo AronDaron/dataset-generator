@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MAX_RETRIES = 3
 RETRY_COOLDOWN = 15  # seconds
-RETRYABLE_CODES = {429, 500}
+RETRYABLE_CODES = {429, 500, 503}
 REQUEST_TIMEOUT = 480.0  # seconds — DeepSeek V3.2 at 11 tps × 4096 tokens ≈ 370s; 480s gives safe margin
 
 
@@ -96,13 +96,23 @@ async def chat_completion(
 
 
 async def list_models(api_key: str) -> list[dict[str, Any]]:
-    """Fetch available models from OpenRouter."""
+    """Fetch available models from OpenRouter with retry logic."""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "HTTP-Referer": "http://localhost",
         "X-Title": "DatasetGenerator",
     }
+    last_error: OpenRouterError | None = None
     async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.get(f"{OPENROUTER_BASE_URL}/models", headers=headers)
-        r.raise_for_status()
-        return r.json().get("data", [])
+        for attempt in range(MAX_RETRIES):
+            r = await client.get(f"{OPENROUTER_BASE_URL}/models", headers=headers)
+            if r.status_code == 200:
+                return r.json().get("data", [])
+            if r.status_code in RETRYABLE_CODES:
+                last_error = OpenRouterError(r.status_code, r.text)
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(RETRY_COOLDOWN)
+                continue
+            raise OpenRouterError(r.status_code, r.text)
+    assert last_error is not None
+    raise last_error
