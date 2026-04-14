@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, FolderOpen, Trash2, Rocket, AlertCircle, CheckCircle2, XCircle } from 'lucide-react'
+import { ChevronLeft, Eye, FolderOpen, Trash2, Rocket, AlertCircle, CheckCircle2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getJobs, deleteJob, openDatasetsFolder, type JobListItem } from '@/lib/api'
@@ -163,6 +163,14 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder }: Jo
 
       {/* Actions */}
       <div className="flex shrink-0 items-center gap-2">
+        {job.completed > 0 && (
+          <Link href={`/jobs/${job.id}`}>
+            <Button variant="outline" size="sm">
+              <Eye className="size-3.5" />
+              View
+            </Button>
+          </Link>
+        )}
         <Button
           variant="outline"
           size="sm"

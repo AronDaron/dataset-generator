@@ -228,3 +228,30 @@ export async function getJobs(): Promise<JobListItem[]> {
 export async function deleteJob(jobId: string): Promise<void> {
   await request(`/api/jobs/${jobId}`, { method: 'DELETE' })
 }
+
+// ---- Dataset preview types ----
+
+export type ExampleItem = SSEExample
+
+export interface JobDetail {
+  id: string
+  status: string
+  config: JobConfig
+  progress: ProgressJson | null
+  created_at: string
+  updated_at: string
+}
+
+export async function getJob(jobId: string): Promise<JobDetail> {
+  return request<JobDetail>(`/api/jobs/${jobId}`)
+}
+
+export async function getJobExamples(
+  jobId: string,
+  limit = 50,
+  offset = 0,
+): Promise<ExampleItem[]> {
+  return request<ExampleItem[]>(
+    `/api/jobs/${jobId}/examples?limit=${limit}&offset=${offset}`,
+  )
+}
