@@ -3,7 +3,7 @@
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000'
 
 import { useEffect, useState } from 'react'
-import { CheckCircle2, AlertCircle, XCircle, FolderOpen, RotateCcw, StopCircle } from 'lucide-react'
+import { CheckCircle2, AlertCircle, XCircle, FolderOpen, RotateCcw, StopCircle, BarChart3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { CATEGORY_COLORS } from './CategoryList'
@@ -13,6 +13,7 @@ import {
   type SSEProgressPayload,
   type SSEExample,
 } from '@/lib/api'
+import { QualityReportModal } from '@/components/jobs/QualityReportModal'
 
 const STATUS_LABELS: Record<string, string> = {
   pending:    'Pending',
@@ -133,6 +134,7 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
   const [sseError, setSseError] = useState<string | null>(null)
   const [isCancelling, setIsCancelling] = useState(false)
   const [isOpeningFolder, setIsOpeningFolder] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
 
   useEffect(() => {
     const es = new EventSource(`${BACKEND_URL}/api/jobs/${jobId}/stream`)
@@ -365,10 +367,16 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
       {/* Action buttons */}
       <div className="space-y-2 pt-1">
         {status === 'completed' && (
-          <Button size="lg" className="w-full btn-cta" onClick={handleOpenFolder} disabled={isOpeningFolder}>
-            <FolderOpen className="size-4" />
-            {isOpeningFolder ? 'Opening…' : 'Open datasets folder'}
-          </Button>
+          <>
+            <Button variant="outline" size="lg" className="w-full gap-1.5" onClick={() => setReportOpen(true)}>
+              <BarChart3 className="size-4" />
+              Quality Report
+            </Button>
+            <Button size="lg" className="w-full btn-cta" onClick={handleOpenFolder} disabled={isOpeningFolder}>
+              <FolderOpen className="size-4" />
+              {isOpeningFolder ? 'Opening…' : 'Open datasets folder'}
+            </Button>
+          </>
         )}
         {isTerminal && (
           <Button variant="outline" size="lg" className="w-full" onClick={onReset}>
@@ -399,6 +407,11 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
           </Button>
         )}
       </div>
+      <QualityReportModal
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        jobId={jobId}
+      />
     </div>
   )
 }

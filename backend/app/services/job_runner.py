@@ -223,19 +223,21 @@ async def _save_example(
     model: str = "",
     judge_prompt_tokens: int = 0,
     judge_completion_tokens: int = 0,
+    category: str = "",
 ) -> None:
     now = _now_iso()
     await db.execute(
         "INSERT INTO examples "
         "(id, job_id, content_json, format, tokens, created_at, judge_score, "
-        " prompt_tokens, completion_tokens, model, judge_prompt_tokens, judge_completion_tokens) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " prompt_tokens, completion_tokens, model, judge_prompt_tokens, judge_completion_tokens, category) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             str(uuid.uuid4()), job_id, json.dumps(content), fmt,
             prompt_tokens + completion_tokens,  # backward compat for old 'tokens' column
             now, judge_score,
             prompt_tokens, completion_tokens, model,
             judge_prompt_tokens, judge_completion_tokens,
+            category,
         ),
     )
     await db.commit()
@@ -555,6 +557,7 @@ async def _run_category(
                 model=effective_model,
                 judge_prompt_tokens=total_judge_prompt,
                 judge_completion_tokens=total_judge_completion,
+                category=cat.name,
             )
             progress.categories[cat.name].completed += 1
             progress.completed += 1

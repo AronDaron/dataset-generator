@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { AlertCircle, ChevronLeft, Copy, Database } from 'lucide-react'
+import { AlertCircle, BarChart3, ChevronLeft, Copy, Database } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -13,6 +13,7 @@ import {
   type JobDetail,
 } from '@/lib/api'
 import { DeduplicateModal } from '@/components/jobs/DeduplicateModal'
+import { QualityReportModal } from '@/components/jobs/QualityReportModal'
 
 // ---- Types ----
 
@@ -212,6 +213,7 @@ export default function JobDetailPage() {
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [dedupOpen, setDedupOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
 
   const detailPanelRef = useRef<HTMLElement | null>(null)
 
@@ -287,18 +289,29 @@ export default function JobDetailPage() {
               <span className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">
                 {job.config.model}
               </span>
-              {job.status === 'completed' && examples.length >= 2 && (
+              {job.status === 'completed' && (
                 <>
                   <div className="h-4 w-px bg-white/10" />
                   <Button
                     variant="outline"
                     size="sm"
                     className="gap-1.5"
-                    onClick={() => setDedupOpen(true)}
+                    onClick={() => setReportOpen(true)}
                   >
-                    <Copy className="size-3.5" />
-                    Check duplicates
+                    <BarChart3 className="size-3.5" />
+                    Quality Report
                   </Button>
+                  {examples.length >= 2 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => setDedupOpen(true)}
+                    >
+                      <Copy className="size-3.5" />
+                      Check duplicates
+                    </Button>
+                  )}
                 </>
               )}
             </>
@@ -427,6 +440,11 @@ export default function JobDetailPage() {
             setSelectedExample(data[0] ?? null)
           })
         }}
+      />
+      <QualityReportModal
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        jobId={jobId}
       />
     </main>
   )

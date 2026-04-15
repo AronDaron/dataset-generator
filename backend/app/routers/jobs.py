@@ -15,15 +15,22 @@ from fastapi.responses import StreamingResponse
 from app.config import settings
 from app.database import get_db
 from app.utils import get_api_key as _get_api_key, now_iso as _now_iso
+import statistics
+
 from app.models.jobs import (
     CategoryProgress,
     DuplicateRequest,
     DuplicatesResponse,
     ExampleResponse,
+    GenerationEfficiency,
     JobConfig,
     JobListItem,
     JobResponse,
+    JobStatsResponse,
     ProgressJson,
+    ScoreBucket,
+    ScoreDistribution,
+    TokenStatsByCategory,
 )
 from app.services.dedup_service import find_duplicates
 from app.services.export_service import export_job
@@ -361,6 +368,123 @@ async def list_examples(
         )
         for row in rows
     ]
+
+
+# ---- Quality Report / Stats ----
+
+
+def _compute_score_buckets(scores: list[int]) -> list[ScoreBucket]:
+    """Build histogram buckets with dynamic width based on score range."""
+    if not scores:
+        return []
+    min_s, max_s = min(scores), max(scores)
+    score_range = max_s - min_s
+    if score_range <= 10:
+        width = 1
+    elif score_range <= 25:
+        width = 5
+    else:
+        width = 10
+    start = (min_s // width) * width
+    buckets: list[ScoreBucket] = []
+    while start <= max_s:
+        end = min(start + width, max_s + 1)
+        is_last = end > max_s
+        count = sum(1 for s in scores if start <= s < end) if not is_last else sum(1 for s in scores if start <= s <= max_s)
+        upper_label = min(start + width - 1, max_s)
+        label = f"{start}-{upper_label}" if width > 1 else str(start)
+        if count > 0:
+            buckets.append(ScoreBucket(label=label, count=count))
+        start += width
+    return buckets
+
+
+@router.get("/{job_id}/stats", response_model=JobStatsResponse)
+async def get_job_stats(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> JobStatsResponse:
+    """Quality report statistics for a completed job."""
+    async with await db.execute(
+        "SELECT id, status, config_json, progress_json FROM jobs WHERE id = ?",
+        (job_id,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    config = JobConfig.model_validate_json(row["config_json"])
+    progress = _parse_progress(row)
+
+    # Token stats by category
+    async with await db.execute(
+        "SELECT "
+        "  CASE WHEN category = '' THEN 'Unknown' ELSE category END AS cat, "
+        "  COUNT(*) AS cnt, "
+        "  ROUND(AVG(prompt_tokens + completion_tokens), 1) AS avg_tok, "
+        "  MIN(prompt_tokens + completion_tokens) AS min_tok, "
+        "  MAX(prompt_tokens + completion_tokens) AS max_tok "
+        "FROM examples WHERE job_id = ? "
+        "GROUP BY cat ORDER BY cat",
+        (job_id,),
+    ) as cursor:
+        token_rows = await cursor.fetchall()
+
+    token_stats = [
+        TokenStatsByCategory(
+            category=r["cat"],
+            examples_count=r["cnt"],
+            avg_tokens=r["avg_tok"] or 0,
+            min_tokens=r["min_tok"] or 0,
+            max_tokens=r["max_tok"] or 0,
+        )
+        for r in token_rows
+    ]
+
+    # Score distribution (only when judge was enabled)
+    score_dist = None
+    if config.judge_enabled:
+        async with await db.execute(
+            "SELECT judge_score FROM examples "
+            "WHERE job_id = ? AND judge_score IS NOT NULL",
+            (job_id,),
+        ) as cursor:
+            score_rows = await cursor.fetchall()
+        scores = [r["judge_score"] for r in score_rows]
+        if scores:
+            sorted_scores = sorted(scores)
+            score_dist = ScoreDistribution(
+                buckets=_compute_score_buckets(scores),
+                total=len(scores),
+                min_score=sorted_scores[0],
+                max_score=sorted_scores[-1],
+                avg_score=round(statistics.mean(scores), 1),
+                median_score=int(statistics.median(sorted_scores)),
+            )
+
+    # Generation efficiency from progress_json
+    efficiency: list[GenerationEfficiency] = []
+    if progress and progress.categories:
+        for cat_name, cat_prog in progress.categories.items():
+            total_attempts = cat_prog.completed + cat_prog.skipped
+            rate = (cat_prog.completed / total_attempts * 100) if total_attempts > 0 else 100.0
+            efficiency.append(
+                GenerationEfficiency(
+                    category=cat_name,
+                    target=cat_prog.target,
+                    completed=cat_prog.completed,
+                    skipped=cat_prog.skipped,
+                    success_rate=round(rate, 1),
+                )
+            )
+
+    return JobStatsResponse(
+        job_id=job_id,
+        judge_enabled=config.judge_enabled,
+        score_distribution=score_dist,
+        token_stats=token_stats,
+        generation_efficiency=efficiency,
+    )
 
 
 # ---- Deduplication ----

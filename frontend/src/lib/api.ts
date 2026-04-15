@@ -312,6 +312,50 @@ export async function uploadToHuggingFace(
   })
 }
 
+// ---- Quality Report / Stats ----
+
+export interface ScoreBucket {
+  label: string
+  count: number
+}
+
+export interface ScoreDistribution {
+  buckets: ScoreBucket[]
+  total: number
+  min_score: number
+  max_score: number
+  avg_score: number
+  median_score: number
+}
+
+export interface TokenStatsByCategory {
+  category: string
+  examples_count: number
+  avg_tokens: number
+  min_tokens: number
+  max_tokens: number
+}
+
+export interface GenerationEfficiency {
+  category: string
+  target: number
+  completed: number
+  skipped: number
+  success_rate: number
+}
+
+export interface JobStats {
+  job_id: string
+  judge_enabled: boolean
+  score_distribution: ScoreDistribution | null
+  token_stats: TokenStatsByCategory[]
+  generation_efficiency: GenerationEfficiency[]
+}
+
+export async function getJobStats(jobId: string): Promise<JobStats> {
+  return request<JobStats>(`/api/jobs/${jobId}/stats`)
+}
+
 // ---- Deduplication ----
 
 export interface DuplicatePair {

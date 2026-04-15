@@ -141,3 +141,44 @@ class DuplicatePairResponse(BaseModel):
 class DuplicatesResponse(BaseModel):
     pairs: List[DuplicatePairResponse]
     total_examples: int
+
+
+# ---- Quality Report ----
+
+
+class ScoreBucket(BaseModel):
+    label: str
+    count: int
+
+
+class ScoreDistribution(BaseModel):
+    buckets: List[ScoreBucket]
+    total: int
+    min_score: int
+    max_score: int
+    avg_score: float
+    median_score: int
+
+
+class TokenStatsByCategory(BaseModel):
+    category: str
+    examples_count: int
+    avg_tokens: float
+    min_tokens: int
+    max_tokens: int
+
+
+class GenerationEfficiency(BaseModel):
+    category: str
+    target: int
+    completed: int
+    skipped: int
+    success_rate: float
+
+
+class JobStatsResponse(BaseModel):
+    job_id: str
+    judge_enabled: bool
+    score_distribution: Optional[ScoreDistribution] = None
+    token_stats: List[TokenStatsByCategory]
+    generation_efficiency: List[GenerationEfficiency]
