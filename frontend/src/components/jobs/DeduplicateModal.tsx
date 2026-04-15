@@ -20,6 +20,7 @@ import {
   type DuplicatePair,
 } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { parseTurnsFromContent, normaliseRole, type Turn } from '@/lib/example-utils'
 
 type ModalState = 'config' | 'scanning' | 'results' | 'error'
 
@@ -28,48 +29,6 @@ interface DeduplicateModalProps {
   onClose: () => void
   jobId: string
   onExamplesChanged: () => void
-}
-
-// ---- Turn parsing (same logic as /jobs/[id]/page.tsx) ----
-
-interface Turn {
-  role: string
-  content: string
-}
-
-function parseTurnsFromContent(
-  content: Record<string, unknown>,
-  format: string,
-): Turn[] {
-  try {
-    if (format === 'sharegpt') {
-      const convs = content.conversations as Array<{ from: string; value: string }> | undefined
-      return (convs ?? []).map((e) => ({ role: e.from ?? '', content: e.value ?? '' }))
-    }
-    if (format === 'chatml') {
-      const msgs = content.messages as Array<{ role: string; content: string }> | undefined
-      return (msgs ?? []).map((e) => ({ role: e.role ?? '', content: e.content ?? '' }))
-    }
-    if (format === 'alpaca') {
-      const instruction = (content.instruction as string) ?? ''
-      const input = (content.input as string) ?? ''
-      const output = (content.output as string) ?? ''
-      const userContent = input ? `${instruction}\n${input}` : instruction
-      return [
-        { role: 'user', content: userContent },
-        { role: 'assistant', content: output },
-      ]
-    }
-  } catch {
-    // fall through
-  }
-  return []
-}
-
-function normaliseRole(role: string): 'USER' | 'ASSISTANT' | 'SYSTEM' {
-  if (role === 'human' || role === 'user') return 'USER'
-  if (role === 'gpt' || role === 'assistant') return 'ASSISTANT'
-  return 'SYSTEM'
 }
 
 // ---- Helpers ----
@@ -459,7 +418,7 @@ export function DeduplicateModal({
                   </div>
                 </div>
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  Compares all examples using TF-IDF text similarity. Higher threshold
+                  Compares all examples using embedding cosine similarity. Higher threshold
                   means only near-identical pairs are flagged.
                 </p>
               </div>

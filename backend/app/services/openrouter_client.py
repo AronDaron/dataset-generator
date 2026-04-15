@@ -105,7 +105,26 @@ async def list_models(api_key: str) -> list[dict[str, Any]]:
     last_error: OpenRouterError | None = None
     async with httpx.AsyncClient(timeout=30.0) as client:
         for attempt in range(MAX_RETRIES):
-            r = await client.get(f"{OPENROUTER_BASE_URL}/models", headers=headers)
+            try:
+                r = await client.get(f"{OPENROUTER_BASE_URL}/models", headers=headers)
+            except httpx.TimeoutException:
+                logger.warning(
+                    "Model list request timed out (attempt %d/%d)",
+                    attempt + 1, MAX_RETRIES,
+                )
+                last_error = OpenRouterError(408, "Model list request timed out")
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(RETRY_COOLDOWN)
+                continue
+            except httpx.NetworkError as exc:
+                logger.warning(
+                    "Model list network error (attempt %d/%d): %s",
+                    attempt + 1, MAX_RETRIES, exc,
+                )
+                last_error = OpenRouterError(503, f"Network error: {exc}")
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(RETRY_COOLDOWN)
+                continue
             if r.status_code == 200:
                 return r.json().get("data", [])
             if r.status_code in RETRYABLE_CODES:

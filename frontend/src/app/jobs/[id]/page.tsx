@@ -12,43 +12,14 @@ import {
   type ExampleItem,
   type JobDetail,
 } from '@/lib/api'
+import { parseTurnsFromContent, normaliseRole, type Turn } from '@/lib/example-utils'
 import { DeduplicateModal } from '@/components/jobs/DeduplicateModal'
 import { QualityReportModal } from '@/components/jobs/QualityReportModal'
-
-// ---- Types ----
-
-interface Turn {
-  role: string
-  content: string
-}
 
 // ---- Helpers ----
 
 function parseTurns(example: ExampleItem): Turn[] {
-  const c = example.content
-  try {
-    if (example.format === 'sharegpt') {
-      const convs = c.conversations as Array<{ from: string; value: string }> | undefined
-      return (convs ?? []).map((e) => ({ role: e.from ?? '', content: e.value ?? '' }))
-    }
-    if (example.format === 'chatml') {
-      const msgs = c.messages as Array<{ role: string; content: string }> | undefined
-      return (msgs ?? []).map((e) => ({ role: e.role ?? '', content: e.content ?? '' }))
-    }
-    if (example.format === 'alpaca') {
-      const instruction = (c.instruction as string) ?? ''
-      const input = (c.input as string) ?? ''
-      const output = (c.output as string) ?? ''
-      const userContent = input ? `${instruction}\n${input}` : instruction
-      return [
-        { role: 'user', content: userContent },
-        { role: 'assistant', content: output },
-      ]
-    }
-  } catch {
-    // fall through to empty
-  }
-  return []
+  return parseTurnsFromContent(example.content, example.format)
 }
 
 function getPreviewText(example: ExampleItem): string {
@@ -56,12 +27,6 @@ function getPreviewText(example: ExampleItem): string {
   const first = turns.find((t) => ['human', 'user'].includes(t.role))
   const text = first?.content ?? ''
   return text.length > 60 ? text.slice(0, 60) + '…' : text
-}
-
-function normaliseRole(role: string): 'USER' | 'ASSISTANT' | 'SYSTEM' {
-  if (role === 'human' || role === 'user') return 'USER'
-  if (role === 'gpt' || role === 'assistant') return 'ASSISTANT'
-  return 'SYSTEM'
 }
 
 function formatDate(iso: string): string {

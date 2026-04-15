@@ -59,6 +59,10 @@ export interface JobConfig {
 export interface JobCreatedResponse {
   id: string
   status: string
+  config?: JobConfig
+  progress?: ProgressJson | null
+  created_at?: string
+  updated_at?: string
 }
 
 async function request<T>(

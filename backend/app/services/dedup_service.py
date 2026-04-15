@@ -104,13 +104,10 @@ def _find_pairs_above_threshold(
     sim_matrix: np.ndarray, threshold: float
 ) -> list[tuple[int, int, float]]:
     """Extract (i, j, score) pairs from upper triangle of similarity matrix."""
-    n = sim_matrix.shape[0]
-    pairs: list[tuple[int, int, float]] = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            score = float(sim_matrix[i, j])
-            if score >= threshold:
-                pairs.append((i, j, score))
+    i_idx, j_idx = np.triu_indices(sim_matrix.shape[0], k=1)
+    scores = sim_matrix[i_idx, j_idx]
+    mask = scores >= threshold
+    pairs = list(zip(i_idx[mask].tolist(), j_idx[mask].tolist(), scores[mask].tolist()))
     pairs.sort(key=lambda p: p[2], reverse=True)
     return pairs
 
