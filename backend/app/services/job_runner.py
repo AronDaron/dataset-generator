@@ -135,6 +135,61 @@ def _extract_usage(response: dict) -> dict:
     }
 
 
+def _validate_example_structure(parsed: dict, fmt: str) -> bool:
+    """Check that a parsed example has valid structure for the given format.
+
+    Returns True if valid, False otherwise.
+    """
+    if not isinstance(parsed, dict):
+        return False
+
+    if fmt == "alpaca":
+        if not isinstance(parsed.get("instruction"), str) or not parsed["instruction"].strip():
+            return False
+        for field in ("input", "output"):
+            if field in parsed and not isinstance(parsed[field], str):
+                return False
+        return True
+
+    if fmt == "sharegpt":
+        convos = parsed.get("conversations")
+        if not isinstance(convos, list) or len(convos) < 2:
+            return False
+        expected_roles = ("human", "gpt")
+        for i, turn in enumerate(convos):
+            if not isinstance(turn, dict):
+                return False
+            role = turn.get("from")
+            value = turn.get("value")
+            if not isinstance(role, str) or not isinstance(value, str):
+                return False
+            if role not in expected_roles:
+                return False
+            if role != expected_roles[i % 2]:
+                return False
+        return True
+
+    if fmt == "chatml":
+        msgs = parsed.get("messages")
+        if not isinstance(msgs, list) or len(msgs) < 2:
+            return False
+        expected_roles = ("user", "assistant")
+        for i, turn in enumerate(msgs):
+            if not isinstance(turn, dict):
+                return False
+            role = turn.get("role")
+            content = turn.get("content")
+            if not isinstance(role, str) or not isinstance(content, str):
+                return False
+            if role not in expected_roles:
+                return False
+            if role != expected_roles[i % 2]:
+                return False
+        return True
+
+    return True
+
+
 async def _generate_and_validate_example(
     api_key: str,
     model: str,
@@ -143,9 +198,10 @@ async def _generate_and_validate_example(
     max_tokens: int,
     retry_cooldown: int = 15,
     provider: str | None = None,
+    output_format: str = "sharegpt",
 ) -> tuple[dict, int, dict] | None:
     """
-    Call LLM, parse JSON, validate token count.
+    Call LLM, parse JSON, validate structure and token count.
     On first attempt: full prompt.
     If token count exceeds effective_limit: one retry with conciseness hint.
     Returns (parsed_dict, token_count, usage_dict) or None.
@@ -181,6 +237,12 @@ async def _generate_and_validate_example(
         try:
             parsed = _parse_json_response(raw)
         except ValueError:
+            if attempt == 0:
+                continue
+            return None
+
+        if not _validate_example_structure(parsed, output_format):
+            logger.warning("Invalid example structure for format=%s, skipping", output_format)
             if attempt == 0:
                 continue
             return None
@@ -412,6 +474,7 @@ async def _generate_example(
         max_tokens=config.max_tokens,
         retry_cooldown=config.retry_cooldown,
         provider=provider,
+        output_format=config.format,
     )
 
 
