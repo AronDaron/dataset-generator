@@ -31,6 +31,8 @@ export interface CategoryConfig {
   proportion: number
   model?: string
   provider?: string
+  prompt_price?: number
+  completion_price?: number
 }
 
 export interface JobConfig {
@@ -48,6 +50,8 @@ export interface JobConfig {
   judge_criteria?: string
   model_price_per_token?: number
   judge_price_per_token?: number
+  judge_prompt_price?: number
+  judge_completion_price?: number
   judge_provider?: string
 }
 

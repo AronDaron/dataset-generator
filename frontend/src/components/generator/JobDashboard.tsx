@@ -258,7 +258,7 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
                 <StatChip label="gen cost" value={`$${progress.actual_cost.toFixed(4)}`} />
               )}
               {progress.judge_cost != null && (
-                <StatChip label="judge cost est." value={`$${progress.judge_cost.toFixed(4)}`} />
+                <StatChip label="judge cost" value={`$${progress.judge_cost.toFixed(4)}`} />
               )}
             </div>
           )}

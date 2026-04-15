@@ -11,6 +11,8 @@ class CategoryConfig(BaseModel):
     proportion: float = Field(..., gt=0.0, le=1.0)
     model: str | None = None
     provider: str | None = None
+    prompt_price: float = 0.0
+    completion_price: float = 0.0
 
 
 class JobConfig(BaseModel):
@@ -28,8 +30,10 @@ class JobConfig(BaseModel):
     judge_threshold: int = Field(default=80, ge=0, le=100)
     conversation_turns: int = Field(default=2, ge=1, le=5)
     judge_criteria: str = Field(default="relevance, coherence, naturalness, and educational value")
-    model_price_per_token: float = 0.0
-    judge_price_per_token: float = 0.0
+    model_price_per_token: float = 0.0  # deprecated — kept for old jobs backward compat
+    judge_price_per_token: float = 0.0  # deprecated — kept for old jobs backward compat
+    judge_prompt_price: float = 0.0
+    judge_completion_price: float = 0.0
     judge_provider: str | None = None
 
     @model_validator(mode="after")

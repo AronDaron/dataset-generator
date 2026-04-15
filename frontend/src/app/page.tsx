@@ -71,24 +71,43 @@ export default function GeneratorPage() {
         setJudgeCriteria(config.judge_criteria)
         setJudgeProvider(config.judge_provider ?? '')
         if (!keyStatus.has_key) setSettingsOpen(true)
-        else getModels().then(setModelList).catch(() => {/* non-fatal */})
+        else getModels().then((list) => {
+          setModelList(list)
+          if (config.default_model) setModelPricing(list.find((m) => m.id === config.default_model)?.pricing)
+          if (config.judge_model) setJudgePricing(list.find((m) => m.id === config.judge_model)?.pricing)
+        }).catch(() => {/* non-fatal */})
       })
       .catch(() => setSettingsOpen(true))
   }, [])
 
   const estimatedCost = useMemo(() => {
-    if (!modelPricing) return null
-    const avgPrice = (parseFloat(modelPricing.prompt) + parseFloat(modelPricing.completion)) / 2
-    const avgTokens = maxTokens * 0.6 * conversationTurns
-    let cost = totalExamples * avgTokens * avgPrice
-    if (judgeEnabled) {
-      // Brak osobnego judge modelu → judge używa tego samego modelu co generator
-      const effectiveJudgePricing = judgePricing ?? modelPricing
-      const judgeAvg = (parseFloat(effectiveJudgePricing.prompt) + parseFloat(effectiveJudgePricing.completion)) / 2
-      cost += totalExamples * 400 * judgeAvg
+    if (categories.length === 0 || modelList.length === 0) return null
+    const estPromptPerTurn = 400
+    const estCompletionPerTurn = maxTokens * 0.6
+
+    let cost = 0
+    for (const cat of categories) {
+      const effectiveModelId = cat.model || model
+      const pricing = modelList.find((m) => m.id === effectiveModelId)?.pricing
+      if (!pricing) continue
+      const promptPrice = parseFloat(pricing.prompt)
+      const completionPrice = parseFloat(pricing.completion)
+      const catExamples = totalExamples * (cat.proportion / 100)
+      cost += catExamples * conversationTurns * (
+        estPromptPerTurn * promptPrice + estCompletionPerTurn * completionPrice
+      )
     }
-    return cost
-  }, [modelPricing, judgePricing, totalExamples, maxTokens, judgeEnabled, conversationTurns])
+    if (judgeEnabled) {
+      const effectiveJudgePricing = judgePricing ?? modelPricing
+      if (effectiveJudgePricing) {
+        cost += totalExamples * (
+          400 * parseFloat(effectiveJudgePricing.prompt) +
+          100 * parseFloat(effectiveJudgePricing.completion)
+        )
+      }
+    }
+    return cost > 0 ? cost : null
+  }, [categories, model, modelList, totalExamples, maxTokens, conversationTurns, judgeEnabled, judgePricing, modelPricing])
 
   function isValid(): boolean {
     if (categories.length === 0) return false
@@ -109,13 +128,19 @@ export default function GeneratorPage() {
     try {
       const proportionFloats = toApiProportions(categories)
       const result = await createJob({
-        categories: categories.map((c, i) => ({
-          name: c.name.trim(),
-          description: c.description.trim(),
-          proportion: proportionFloats[i],
-          ...(c.model ? { model: c.model } : {}),
-          ...(c.provider ? { provider: c.provider } : {}),
-        })),
+        categories: categories.map((c, i) => {
+          const effectiveModelId = c.model || model
+          const pricing = modelList.find((m) => m.id === effectiveModelId)?.pricing
+          return {
+            name: c.name.trim(),
+            description: c.description.trim(),
+            proportion: proportionFloats[i],
+            ...(c.model ? { model: c.model } : {}),
+            ...(c.provider ? { provider: c.provider } : {}),
+            prompt_price: pricing ? parseFloat(pricing.prompt) : 0,
+            completion_price: pricing ? parseFloat(pricing.completion) : 0,
+          }
+        }),
         total_examples: totalExamples,
         temperature,
         max_tokens: maxTokens,
@@ -133,6 +158,8 @@ export default function GeneratorPage() {
         judge_price_per_token: judgePricing
           ? (parseFloat(judgePricing.prompt) + parseFloat(judgePricing.completion)) / 2
           : 0,
+        judge_prompt_price: judgePricing ? parseFloat(judgePricing.prompt) : 0,
+        judge_completion_price: judgePricing ? parseFloat(judgePricing.completion) : 0,
       })
       setActiveJobThreshold(judgeThreshold)
       updateJobId(result.id)

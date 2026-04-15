@@ -126,6 +126,15 @@ def _inject_conciseness_hint(messages: list[dict], target_tokens: int) -> list[d
     return messages
 
 
+def _extract_usage(response: dict) -> dict:
+    """Extract prompt_tokens and completion_tokens from OpenRouter response."""
+    usage = response.get("usage") or {}
+    return {
+        "prompt_tokens": usage.get("prompt_tokens", 0),
+        "completion_tokens": usage.get("completion_tokens", 0),
+    }
+
+
 async def _generate_and_validate_example(
     api_key: str,
     model: str,
@@ -134,12 +143,12 @@ async def _generate_and_validate_example(
     max_tokens: int,
     retry_cooldown: int = 15,
     provider: str | None = None,
-) -> tuple[dict, int] | None:
+) -> tuple[dict, int, dict] | None:
     """
     Call LLM, parse JSON, validate token count.
     On first attempt: full prompt.
     If token count exceeds effective_limit: one retry with conciseness hint.
-    Returns (parsed_dict, token_count) or None.
+    Returns (parsed_dict, token_count, usage_dict) or None.
     """
     limit = effective_limit(max_tokens)
 
@@ -178,7 +187,7 @@ async def _generate_and_validate_example(
 
         token_count = count_tokens(raw)
         if token_count <= limit:
-            return parsed, token_count
+            return parsed, token_count, _extract_usage(response)
         # Over limit — retry with conciseness hint
 
     return None
@@ -209,12 +218,25 @@ async def _save_example(
     fmt: str,
     tokens: int,
     judge_score: int | None = None,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    model: str = "",
+    judge_prompt_tokens: int = 0,
+    judge_completion_tokens: int = 0,
 ) -> None:
     now = _now_iso()
     await db.execute(
-        "INSERT INTO examples (id, job_id, content_json, format, tokens, created_at, judge_score) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (str(uuid.uuid4()), job_id, json.dumps(content), fmt, tokens, now, judge_score),
+        "INSERT INTO examples "
+        "(id, job_id, content_json, format, tokens, created_at, judge_score, "
+        " prompt_tokens, completion_tokens, model, judge_prompt_tokens, judge_completion_tokens) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            str(uuid.uuid4()), job_id, json.dumps(content), fmt,
+            prompt_tokens + completion_tokens,  # backward compat for old 'tokens' column
+            now, judge_score,
+            prompt_tokens, completion_tokens, model,
+            judge_prompt_tokens, judge_completion_tokens,
+        ),
     )
     await db.commit()
 
@@ -228,18 +250,20 @@ async def _generate_topics(
     config: JobConfig,
     cat: CategoryConfig,
     count: int,
+    overhead: dict | None = None,
 ) -> list[str]:
     logger.info(
         "[_generate_topics] category='%s' requested=%d (TOPIC_BATCH_SIZE=%d)",
         cat.name, count, TOPIC_BATCH_SIZE,
     )
     messages = build_topic_generation_prompt(cat.name, cat.description, count)
+    effective_model = cat.model or config.model
 
     for _ in range(2):
         try:
             response = await chat_completion(
                 api_key=api_key,
-                model=cat.model or config.model,
+                model=effective_model,
                 messages=messages,
                 temperature=config.temperature,
                 max_tokens=min(2048, config.max_tokens),
@@ -249,6 +273,15 @@ async def _generate_topics(
             )
         except Exception:
             continue
+
+        if overhead is not None:
+            usage = _extract_usage(response)
+            overhead["prompt_tokens"] = overhead.get("prompt_tokens", 0) + usage["prompt_tokens"]
+            overhead["completion_tokens"] = overhead.get("completion_tokens", 0) + usage["completion_tokens"]
+            overhead.setdefault("by_model", {})
+            m = overhead["by_model"].setdefault(effective_model, {"prompt_tokens": 0, "completion_tokens": 0})
+            m["prompt_tokens"] += usage["prompt_tokens"]
+            m["completion_tokens"] += usage["completion_tokens"]
 
         raw = _extract_content(response)
         try:
@@ -273,6 +306,7 @@ async def _generate_outline(
     topic: str,
     model: str,
     provider: str | None = None,
+    overhead: dict | None = None,
 ) -> list[str]:
     messages = build_outline_generation_prompt(cat.name, topic)
 
@@ -290,6 +324,15 @@ async def _generate_outline(
     except Exception:
         return []
 
+    if overhead is not None:
+        usage = _extract_usage(response)
+        overhead["prompt_tokens"] = overhead.get("prompt_tokens", 0) + usage["prompt_tokens"]
+        overhead["completion_tokens"] = overhead.get("completion_tokens", 0) + usage["completion_tokens"]
+        overhead.setdefault("by_model", {})
+        m = overhead["by_model"].setdefault(model, {"prompt_tokens": 0, "completion_tokens": 0})
+        m["prompt_tokens"] += usage["prompt_tokens"]
+        m["completion_tokens"] += usage["completion_tokens"]
+
     raw = _extract_content(response)
     try:
         points = _parse_json_response(raw)
@@ -300,6 +343,9 @@ async def _generate_outline(
     return []
 
 
+_EMPTY_USAGE: dict = {"prompt_tokens": 0, "completion_tokens": 0}
+
+
 async def _judge_example(
     content: dict,
     fmt: str,
@@ -307,8 +353,8 @@ async def _judge_example(
     api_key: str,
     judge_criteria: str = "relevance, coherence, naturalness, and educational value",
     provider: str | None = None,
-) -> int | None:
-    """Call LLM judge to rate an example on 0-100 scale. Returns int or None on failure."""
+) -> tuple[int | None, dict]:
+    """Call LLM judge to rate an example on 0-100 scale. Returns (score_or_None, usage_dict)."""
     judge_prompt = (
         "You are an expert dataset quality evaluator. "
         f"Rate the following training example on a scale of 0-100 based on: {judge_criteria}. "
@@ -328,14 +374,15 @@ async def _judge_example(
             max_retries=1,    # fail fast — judge failure is non-fatal (returns None → auto-accept)
             provider=provider,
         )
+        usage = _extract_usage(response)
         parsed = _parse_json_response(_extract_content(response))
         score = parsed.get("score")
         if isinstance(score, (int, float)) and 0 <= score <= 100:
-            return int(score)
-        return None
+            return int(score), usage
+        return None, usage
     except Exception:
         logger.warning("Judge call failed (non-fatal)", exc_info=True)
-        return None
+        return None, _EMPTY_USAGE
 
 
 async def _generate_example(
@@ -385,6 +432,7 @@ async def _run_category(
     progress: ProgressJson,
     all_topics: dict[str, list[str]],
     delay: float,
+    overhead: dict | None = None,
 ) -> None:
     """Run the generation loop for a single category (called via asyncio.gather)."""
     cat_target = count
@@ -407,7 +455,7 @@ async def _run_category(
                 "[job %s] Topics exhausted for '%s', generating %d more to reach target",
                 job_id, cat.name, needed,
             )
-            extra = await _generate_topics(api_key, config, cat, min(TOPIC_BATCH_SIZE, needed))
+            extra = await _generate_topics(api_key, config, cat, min(TOPIC_BATCH_SIZE, needed), overhead=overhead)
             topic_queue.extend(extra)
             await asyncio.sleep(delay)
             if not topic_queue:
@@ -423,7 +471,8 @@ async def _run_category(
 
         async with _gen_semaphore:
             outline = await _generate_outline(
-                api_key, config, cat, topic, effective_model, effective_provider
+                api_key, config, cat, topic, effective_model, effective_provider,
+                overhead=overhead
             )
         await asyncio.sleep(delay)
 
@@ -447,9 +496,11 @@ async def _run_category(
             await _update_progress(db, job_id, "running", progress)
             continue
 
-        content, tokens = result
+        content, tokens, gen_usage = result
         judge_score: int | None = None
         save_this = True
+        total_judge_prompt = 0
+        total_judge_completion = 0
 
         if config.judge_enabled:
             effective_judge_model = config.judge_model or config.model
@@ -465,11 +516,13 @@ async def _run_category(
                 if is_cancelled(job_id):
                     raise _CancelledError()
                 async with _judge_semaphore:
-                    score = await _judge_example(
+                    score, judge_usage = await _judge_example(
                         content, config.format, effective_judge_model, api_key,
                         judge_criteria=config.judge_criteria,
                         provider=config.judge_provider,
                     )
+                total_judge_prompt += judge_usage["prompt_tokens"]
+                total_judge_completion += judge_usage["completion_tokens"]
                 await asyncio.sleep(delay)
 
                 if score is None:
@@ -495,7 +548,14 @@ async def _run_category(
                 save_this = False
 
         if save_this:
-            await _save_example(db, job_id, content, config.format, tokens, judge_score)
+            await _save_example(
+                db, job_id, content, config.format, tokens, judge_score,
+                prompt_tokens=gen_usage["prompt_tokens"],
+                completion_tokens=gen_usage["completion_tokens"],
+                model=effective_model,
+                judge_prompt_tokens=total_judge_prompt,
+                judge_completion_tokens=total_judge_completion,
+            )
             progress.categories[cat.name].completed += 1
             progress.completed += 1
 
@@ -547,6 +607,8 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
     )
     await _update_progress(db, job_id, "running", progress)
 
+    overhead: dict = {}  # accumulates topic + outline usage for cost calculation
+
     try:
         # ── Stage 1: Generate initial topics (sequential) ─────────────────
         all_topics: dict[str, list[str]] = {}
@@ -556,7 +618,7 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
             progress.current_category = cat.name
             await _update_progress(db, job_id, "running", progress)
 
-            topics = await _generate_topics(api_key, config, cat, min(TOPIC_BATCH_SIZE, count))
+            topics = await _generate_topics(api_key, config, cat, min(TOPIC_BATCH_SIZE, count), overhead=overhead)
             all_topics[cat.name] = topics
             await asyncio.sleep(delay)
 
@@ -567,7 +629,7 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
 
         tasks = [
             asyncio.create_task(
-                _run_category(cat, count, config, api_key, db, job_id, progress, all_topics, delay),
+                _run_category(cat, count, config, api_key, db, job_id, progress, all_topics, delay, overhead=overhead),
                 name=f"cat-{cat.name}",
             )
             for cat, count in zip(config.categories, counts)
@@ -587,20 +649,53 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
             job_id, progress.completed, progress.skipped, progress.total_examples,
         )
 
-        # Actual cost — SUM(tokens) z tabeli examples × cena per token
-        if config.model_price_per_token > 0:
-            async with db.execute(
-                "SELECT COALESCE(SUM(tokens), 0) FROM examples WHERE job_id = ?", (job_id,)
-            ) as cur:
-                row = await cur.fetchone()
-            progress.actual_cost = (row[0] or 0) * config.model_price_per_token
+        # Actual cost — per-model pricing from real OpenRouter usage
+        cat_prices = {
+            (c.model or config.model): (c.prompt_price, c.completion_price)
+            for c in config.categories
+        }
+        async with db.execute(
+            "SELECT model, COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), "
+            "       COALESCE(SUM(judge_prompt_tokens), 0), COALESCE(SUM(judge_completion_tokens), 0) "
+            "FROM examples WHERE job_id = ? GROUP BY model",
+            (job_id,),
+        ) as cur:
+            rows = await cur.fetchall()
 
-        # Judge cost — estymacja: evaluated × ~400 tokenów na wywołanie × cena
-        if config.judge_enabled and config.judge_price_per_token > 0 and progress.judge_stats:
-            _AVG_JUDGE_TOKENS = 400
-            progress.judge_cost = (
-                progress.judge_stats.evaluated * _AVG_JUDGE_TOKENS * config.judge_price_per_token
-            )
+        has_new_usage = any(r[1] > 0 or r[2] > 0 for r in rows)
+        if has_new_usage:
+            gen_cost = 0.0
+            judge_cost = 0.0
+            # Judge pricing: prefer split prompt/completion, fallback to legacy averaged
+            j_pp = config.judge_prompt_price or config.judge_price_per_token
+            j_cp = config.judge_completion_price or config.judge_price_per_token
+            for model_id, pt, ct, jpt, jct in rows:
+                pp, cp = cat_prices.get(model_id, (0.0, 0.0))
+                gen_cost += pt * pp + ct * cp
+                judge_cost += jpt * j_pp + jct * j_cp
+            # Add overhead (topic + outline generation costs)
+            for oh_model, oh_usage in overhead.get("by_model", {}).items():
+                pp, cp = cat_prices.get(oh_model, (0.0, 0.0))
+                gen_cost += oh_usage["prompt_tokens"] * pp + oh_usage["completion_tokens"] * cp
+            if gen_cost > 0:
+                progress.actual_cost = gen_cost
+            if judge_cost > 0:
+                progress.judge_cost = judge_cost
+        else:
+            # Fallback for old jobs (pre-migration) — use legacy averaged pricing
+            if config.model_price_per_token > 0:
+                total_tokens = sum(r[1] + r[2] for r in rows) or 0
+                if total_tokens == 0:
+                    async with db.execute(
+                        "SELECT COALESCE(SUM(tokens), 0) FROM examples WHERE job_id = ?", (job_id,)
+                    ) as cur:
+                        row = await cur.fetchone()
+                    total_tokens = row[0] or 0
+                progress.actual_cost = total_tokens * config.model_price_per_token
+            if config.judge_enabled and config.judge_price_per_token > 0 and progress.judge_stats:
+                progress.judge_cost = (
+                    progress.judge_stats.evaluated * 400 * config.judge_price_per_token
+                )
 
         # Avg judge score — AVG(judge_score) dla zakończonego joba
         if config.judge_enabled and progress.judge_stats:

@@ -50,4 +50,16 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
     except Exception as e:
         if "duplicate column name" not in str(e).lower():
             raise
+    for col in [
+        "prompt_tokens INTEGER NOT NULL DEFAULT 0",
+        "completion_tokens INTEGER NOT NULL DEFAULT 0",
+        "model TEXT NOT NULL DEFAULT ''",
+        "judge_prompt_tokens INTEGER NOT NULL DEFAULT 0",
+        "judge_completion_tokens INTEGER NOT NULL DEFAULT 0",
+    ]:
+        try:
+            await db.execute(f"ALTER TABLE examples ADD COLUMN {col}")
+        except Exception as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
     await db.commit()
