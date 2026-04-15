@@ -113,3 +113,31 @@ class ExampleResponse(BaseModel):
     tokens: int
     created_at: str
     judge_score: Optional[int] = None
+
+
+# ---- Deduplication ----
+
+
+class DuplicateRequest(BaseModel):
+    threshold: float = Field(default=0.85, ge=0.5, le=1.0)
+
+
+class DuplicatePairResponse(BaseModel):
+    example_id_a: str
+    example_id_b: str
+    similarity: float
+    preview_a: str
+    preview_b: str
+    content_a: Dict[str, Any]
+    content_b: Dict[str, Any]
+    format_a: str
+    format_b: str
+    tokens_a: int
+    tokens_b: int
+    judge_score_a: Optional[int] = None
+    judge_score_b: Optional[int] = None
+
+
+class DuplicatesResponse(BaseModel):
+    pairs: List[DuplicatePairResponse]
+    total_examples: int

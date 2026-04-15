@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, Eye, FolderOpen, Trash2, Rocket, AlertCircle, CheckCircle2, XCircle, Upload } from 'lucide-react'
+import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, Rocket, AlertCircle, CheckCircle2, XCircle, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getJobs, getHfToken, deleteJob, openDatasetsFolder, type JobListItem } from '@/lib/api'
+import { getJobs, getHfToken, deleteJob, openDatasetsFolder, findDuplicates, type JobListItem } from '@/lib/api'
 import { UploadHfModal } from '@/components/history/UploadHfModal'
 
 type StatusFilter = 'all' | 'completed' | 'running' | 'failed' | 'cancelled'
@@ -117,9 +117,23 @@ interface JobRowProps {
 }
 
 function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUpload }: JobRowProps) {
+  const [dedupState, setDedupState] = useState<'idle' | 'scanning' | 'done'>('idle')
+  const [dedupCount, setDedupCount] = useState(0)
+
   const style = getStatusStyle(job.status)
   const isTerminal = ['completed', 'cancelled', 'failed'].includes(job.status)
   const totalCost = (job.actual_cost ?? 0) + (job.judge_cost ?? 0)
+
+  async function handleCheckDuplicates() {
+    setDedupState('scanning')
+    try {
+      const res = await findDuplicates(job.id, 0.85)
+      setDedupCount(res.pairs.length)
+      setDedupState('done')
+    } catch {
+      setDedupState('idle')
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4 rounded-xl border border-white/8 bg-white/3 px-5 py-5 sm:flex-row sm:items-center sm:gap-5">
@@ -182,6 +196,38 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
             <Upload className="size-3.5" />
             Upload to HF
           </Button>
+        )}
+        {job.status === 'completed' && job.completed >= 2 && dedupState === 'idle' && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={handleCheckDuplicates}
+          >
+            <Copy className="size-3.5" />
+            Check duplicates
+          </Button>
+        )}
+        {dedupState === 'scanning' && (
+          <Button variant="outline" size="sm" className="gap-1.5" disabled>
+            <Loader2 className="size-3.5 animate-spin" />
+            Scanning...
+          </Button>
+        )}
+        {dedupState === 'done' && (
+          dedupCount > 0 ? (
+            <Link href={`/jobs/${job.id}`}>
+              <Button variant="outline" size="sm" className="gap-1.5 border-amber-500/30 text-amber-400 hover:border-amber-500/50">
+                <Copy className="size-3.5" />
+                {dedupCount} duplicate{dedupCount !== 1 ? 's' : ''} found
+              </Button>
+            </Link>
+          ) : (
+            <Button variant="outline" size="sm" className="gap-1.5 border-emerald-500/30 text-emerald-400" disabled>
+              <CheckCircle2 className="size-3.5" />
+              No duplicates
+            </Button>
+          )
         )}
         <Button
           variant="outline"

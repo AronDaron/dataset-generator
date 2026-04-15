@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { AlertCircle, ChevronLeft, Database } from 'lucide-react'
+import { AlertCircle, ChevronLeft, Copy, Database } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -12,6 +12,7 @@ import {
   type ExampleItem,
   type JobDetail,
 } from '@/lib/api'
+import { DeduplicateModal } from '@/components/jobs/DeduplicateModal'
 
 // ---- Types ----
 
@@ -83,76 +84,8 @@ function scoreBg(score: number): string {
   return 'border-red-500/30 bg-red-500/10'
 }
 
-// ---- FormattedContent: renders plain text + code fences without external libraries ----
-
-function InlineCode({ children }: { children: string }) {
-  return (
-    <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-xs text-emerald-300/90">
-      {children}
-    </code>
-  )
-}
-
-function CodeBlock({ lang, code }: { lang: string; code: string }) {
-  return (
-    <div className="my-3">
-      {lang && (
-        <span className="inline-block rounded-t border border-b-0 border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-          {lang}
-        </span>
-      )}
-      <pre
-        className={cn(
-          'overflow-x-auto rounded-md border border-white/10 bg-black/30 p-4',
-          lang && 'rounded-tl-none',
-        )}
-      >
-        <code className="font-mono text-sm leading-relaxed text-emerald-300/90">{code}</code>
-      </pre>
-    </div>
-  )
-}
-
-function PlainTextSegment({ text }: { text: string }) {
-  // Handle inline backtick code: split on single backtick
-  const parts = text.split('`')
-  return (
-    <span className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
-      {parts.map((part, i) =>
-        i % 2 === 1 ? <InlineCode key={i}>{part}</InlineCode> : part,
-      )}
-    </span>
-  )
-}
-
-function FormattedContent({ content }: { content: string }) {
-  if (!content.trim()) {
-    return <span className="italic text-muted-foreground">Empty</span>
-  }
-
-  // Split on triple backticks; odd-indexed segments are code blocks
-  const segments = content.split('```')
-
-  return (
-    <div>
-      {segments.map((seg, i) => {
-        if (i % 2 === 0) {
-          // Plain text — may contain inline `code`
-          return seg ? <PlainTextSegment key={i} text={seg} /> : null
-        }
-        // Code block — first line is language hint
-        const newline = seg.indexOf('\n')
-        if (newline === -1) {
-          // No newline: treat as plain text (malformed fence)
-          return <PlainTextSegment key={i} text={seg} />
-        }
-        const lang = seg.slice(0, newline).trim()
-        const code = seg.slice(newline + 1).replace(/\n$/, '')
-        return <CodeBlock key={i} lang={lang} code={code} />
-      })}
-    </div>
-  )
-}
+// FormattedContent extracted to shared component
+import { FormattedContent } from '@/components/ui/formatted-content'
 
 // ---- TurnBlock ----
 
@@ -278,6 +211,7 @@ export default function JobDetailPage() {
   const [errorJob, setErrorJob] = useState<string | null>(null)
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
+  const [dedupOpen, setDedupOpen] = useState(false)
 
   const detailPanelRef = useRef<HTMLElement | null>(null)
 
@@ -353,6 +287,20 @@ export default function JobDetailPage() {
               <span className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">
                 {job.config.model}
               </span>
+              {job.status === 'completed' && examples.length >= 2 && (
+                <>
+                  <div className="h-4 w-px bg-white/10" />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => setDedupOpen(true)}
+                  >
+                    <Copy className="size-3.5" />
+                    Check duplicates
+                  </Button>
+                </>
+              )}
             </>
           )}
         </div>
@@ -467,6 +415,19 @@ export default function JobDetailPage() {
           </section>
         </div>
       )}
+      <DeduplicateModal
+        open={dedupOpen}
+        onClose={() => setDedupOpen(false)}
+        jobId={jobId}
+        onExamplesChanged={() => {
+          getJobExamples(jobId, PAGE_LIMIT, 0).then((data) => {
+            setExamples(data)
+            setOffset(PAGE_LIMIT)
+            setHasMore(data.length === PAGE_LIMIT)
+            setSelectedExample(data[0] ?? null)
+          })
+        }}
+      />
     </main>
   )
 }

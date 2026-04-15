@@ -17,12 +17,15 @@ from app.database import get_db
 from app.utils import get_api_key as _get_api_key, now_iso as _now_iso
 from app.models.jobs import (
     CategoryProgress,
+    DuplicateRequest,
+    DuplicatesResponse,
     ExampleResponse,
     JobConfig,
     JobListItem,
     JobResponse,
     ProgressJson,
 )
+from app.services.dedup_service import find_duplicates
 from app.services.export_service import export_job
 from app.services.job_runner import cancel_job, distribute_examples, run_job
 
@@ -358,3 +361,50 @@ async def list_examples(
         )
         for row in rows
     ]
+
+
+# ---- Deduplication ----
+
+
+@router.post("/{job_id}/duplicates", response_model=DuplicatesResponse)
+async def find_duplicate_examples(
+    job_id: str,
+    body: DuplicateRequest,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> DuplicatesResponse:
+    """Find near-duplicate example pairs using TF-IDF cosine similarity."""
+    async with await db.execute(
+        "SELECT id FROM jobs WHERE id = ?", (job_id,)
+    ) as cur:
+        if not await cur.fetchone():
+            raise HTTPException(status_code=404, detail="Job not found")
+
+    async with await db.execute(
+        "SELECT COUNT(*) FROM examples WHERE job_id = ?", (job_id,)
+    ) as cur:
+        row = await cur.fetchone()
+        total = row[0] if row else 0
+
+    pairs = await find_duplicates(db, job_id, body.threshold)
+    return DuplicatesResponse(pairs=pairs, total_examples=total)
+
+
+@router.delete("/{job_id}/examples/{example_id}", status_code=204)
+async def delete_example(
+    job_id: str,
+    example_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> None:
+    """Delete a single example from a job."""
+    async with await db.execute(
+        "SELECT id FROM examples WHERE id = ? AND job_id = ?",
+        (example_id, job_id),
+    ) as cur:
+        if not await cur.fetchone():
+            raise HTTPException(status_code=404, detail="Example not found")
+
+    await db.execute(
+        "DELETE FROM examples WHERE id = ? AND job_id = ?",
+        (example_id, job_id),
+    )
+    await db.commit()

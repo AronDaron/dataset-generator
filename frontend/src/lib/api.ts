@@ -298,3 +298,46 @@ export async function uploadToHuggingFace(
     body: JSON.stringify(req),
   })
 }
+
+// ---- Deduplication ----
+
+export interface DuplicatePair {
+  example_id_a: string
+  example_id_b: string
+  similarity: number
+  preview_a: string
+  preview_b: string
+  content_a: Record<string, unknown>
+  content_b: Record<string, unknown>
+  format_a: 'sharegpt' | 'alpaca' | 'chatml'
+  format_b: 'sharegpt' | 'alpaca' | 'chatml'
+  tokens_a: number
+  tokens_b: number
+  judge_score_a: number | null
+  judge_score_b: number | null
+}
+
+export interface DuplicatesResponse {
+  pairs: DuplicatePair[]
+  total_examples: number
+}
+
+export async function findDuplicates(
+  jobId: string,
+  threshold = 0.85,
+): Promise<DuplicatesResponse> {
+  return request<DuplicatesResponse>(`/api/jobs/${jobId}/duplicates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ threshold }),
+  })
+}
+
+export async function deleteExample(
+  jobId: string,
+  exampleId: string,
+): Promise<void> {
+  await request(`/api/jobs/${jobId}/examples/${exampleId}`, {
+    method: 'DELETE',
+  })
+}
