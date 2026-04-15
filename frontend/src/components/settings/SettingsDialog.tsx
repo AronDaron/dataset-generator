@@ -2,20 +2,22 @@
 
 import { useEffect, useState } from 'react'
 import { Dialog } from '@base-ui/react/dialog'
-import { X, Key, Cpu, Scale } from 'lucide-react'
+import { X, Key, Cpu, Scale, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ApiKeySection } from './ApiKeySection'
 import { HfTokenSection } from './HfTokenSection'
 import { ConfigSection } from './ConfigSection'
-import { getApiKey, getHfToken, getConfig, putConfig } from '@/lib/api'
+import { SelectField, type SelectOption } from '@/components/ui/select'
+import { getApiKey, getHfToken, getConfig, putConfig, getEmbeddingModels } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-type SettingsTab = 'keys' | 'generation' | 'judge'
+type SettingsTab = 'keys' | 'generation' | 'judge' | 'dedup'
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: 'keys', label: 'API Keys', icon: <Key className="size-4" /> },
   { id: 'generation', label: 'Generation', icon: <Cpu className="size-4" /> },
   { id: 'judge', label: 'LLM Judge', icon: <Scale className="size-4" /> },
+  { id: 'dedup', label: 'Dedup', icon: <Layers className="size-4" /> },
 ]
 
 interface SettingsDialogProps {
@@ -53,6 +55,9 @@ export function SettingsDialog({
   const [judgeThreshold, setJudgeThreshold] = useState(80)
   const [judgeCriteria, setJudgeCriteria] = useState('relevance, coherence, naturalness, and educational value')
   const [judgeProvider, setJudgeProvider] = useState(judgeProviderProp)
+  const [embeddingModel, setEmbeddingModel] = useState('openai/text-embedding-3-small')
+  const [embeddingModelOptions, setEmbeddingModelOptions] = useState<SelectOption[]>([])
+  const [loadingEmbeddingModels, setLoadingEmbeddingModels] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -77,11 +82,20 @@ export function SettingsDialog({
         setJudgeModel(config.judge_model)
         setJudgeThreshold(config.judge_threshold)
         setJudgeCriteria(config.judge_criteria)
+        if (config.embedding_model) setEmbeddingModel(config.embedding_model)
         if (config.default_model && !model) {
           setLocalModel(config.default_model)
         }
       })
       .catch(() => {})
+
+    setLoadingEmbeddingModels(true)
+    getEmbeddingModels()
+      .then((list) => {
+        setEmbeddingModelOptions(list.map((m) => ({ value: m.id, label: m.name })))
+      })
+      .catch(() => {})
+      .finally(() => setLoadingEmbeddingModels(false))
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSave() {
@@ -99,6 +113,7 @@ export function SettingsDialog({
         judge_threshold: judgeThreshold,
         judge_criteria: judgeCriteria,
         judge_provider: judgeProvider,
+        embedding_model: embeddingModel,
       })
       onModelChange(localModel)
       onJudgeProviderChange?.(judgeProvider)
@@ -240,6 +255,27 @@ export function SettingsDialog({
                   onModelPricingChange={onModelPricingChange}
                   onJudgePricingChange={onJudgePricingChange}
                 />
+              )}
+
+              {activeTab === 'dedup' && (
+                <div className="space-y-3.5">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70">
+                    Deduplication
+                  </p>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Embedding model</label>
+                    <SelectField
+                      value={embeddingModel}
+                      onChange={setEmbeddingModel}
+                      options={embeddingModelOptions}
+                      placeholder="Select embedding model..."
+                      isLoading={loadingEmbeddingModels}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Model used for semantic similarity detection when checking duplicates
+                    </p>
+                  </div>
+                </div>
               )}
             </div>
           </div>

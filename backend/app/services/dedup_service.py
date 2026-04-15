@@ -1,4 +1,4 @@
-"""TF-IDF based duplicate detection for dataset examples."""
+"""Embedding-based duplicate detection for dataset examples."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ import logging
 from typing import Any
 
 import aiosqlite
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
 from app.models.jobs import DuplicatePairResponse
+from app.services.embedding_service import get_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ PREVIEW_LENGTH = 120
 
 
 def extract_text(content_json: str, fmt: str) -> str:
-    """Extract plain text from example content for TF-IDF vectorization."""
+    """Extract plain text from example content for embedding."""
     try:
         data: dict[str, Any] = json.loads(content_json)
     except (json.JSONDecodeError, TypeError):
@@ -92,22 +92,25 @@ def format_text_with_turns(content_json: str, fmt: str) -> str:
     return content_json
 
 
-def _compute_similarity(texts: list[str], threshold: float) -> list[tuple[int, int, float]]:
-    """Run TF-IDF + cosine similarity (CPU-bound, runs in thread)."""
-    if len(texts) < 2:
-        return []
+def _cosine_similarity_matrix(embeddings: np.ndarray) -> np.ndarray:
+    """Compute pairwise cosine similarity using numpy."""
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    norms = np.maximum(norms, 1e-10)  # avoid division by zero
+    normalized = embeddings / norms
+    return normalized @ normalized.T
 
-    tfidf_matrix = TfidfVectorizer(min_df=1).fit_transform(texts)
-    sim_matrix = cosine_similarity(tfidf_matrix)
 
+def _find_pairs_above_threshold(
+    sim_matrix: np.ndarray, threshold: float
+) -> list[tuple[int, int, float]]:
+    """Extract (i, j, score) pairs from upper triangle of similarity matrix."""
+    n = sim_matrix.shape[0]
     pairs: list[tuple[int, int, float]] = []
-    n = len(texts)
     for i in range(n):
         for j in range(i + 1, n):
             score = float(sim_matrix[i, j])
             if score >= threshold:
                 pairs.append((i, j, score))
-
     pairs.sort(key=lambda p: p[2], reverse=True)
     return pairs
 
@@ -116,8 +119,10 @@ async def find_duplicates(
     db: aiosqlite.Connection,
     job_id: str,
     threshold: float = 0.85,
+    api_key: str = "",
+    embedding_model: str = "openai/text-embedding-3-small",
 ) -> list[DuplicatePairResponse]:
-    """Find duplicate example pairs using TF-IDF cosine similarity."""
+    """Find duplicate example pairs using embedding cosine similarity."""
 
     async with await db.execute(
         "SELECT id, content_json, format, tokens, judge_score "
@@ -131,7 +136,12 @@ async def find_duplicates(
 
     texts = [extract_text(row["content_json"], row["format"]) for row in rows]
 
-    raw_pairs = await asyncio.to_thread(_compute_similarity, texts, threshold)
+    # Get embeddings from API
+    embeddings = await get_embeddings(api_key, embedding_model, texts)
+
+    # Compute cosine similarity in a thread to avoid blocking event loop
+    sim_matrix = await asyncio.to_thread(_cosine_similarity_matrix, embeddings)
+    raw_pairs = _find_pairs_above_threshold(sim_matrix, threshold)
 
     result: list[DuplicatePairResponse] = []
     for i, j, score in raw_pairs:

@@ -48,6 +48,18 @@ async def get_model_endpoints(model_id: str, db: aiosqlite.Connection = Depends(
     return r.json()
 
 
+EMBEDDING_MODELS = [
+    {"id": "openai/text-embedding-3-small", "name": "OpenAI Text Embedding 3 Small"},
+    {"id": "openai/text-embedding-3-large", "name": "OpenAI Text Embedding 3 Large"},
+    {"id": "openai/text-embedding-ada-002", "name": "OpenAI Ada 002 (legacy)"},
+]
+
+
+@router.get("/embedding-models")
+async def get_embedding_models() -> dict[str, Any]:
+    return {"models": EMBEDDING_MODELS}
+
+
 @router.post("/test")
 async def test_connection(db: aiosqlite.Connection = Depends(get_db)) -> dict[str, str]:
     api_key = await _get_api_key(db)

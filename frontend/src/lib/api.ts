@@ -17,6 +17,7 @@ export interface GlobalConfig {
   conversation_turns: number
   judge_criteria: string
   judge_provider?: string
+  embedding_model?: string
 }
 
 export interface ModelOption {
@@ -120,6 +121,18 @@ export async function getModels(): Promise<ModelOption[]> {
     name: m.name || m.id,
     pricing: m.pricing,
   }))
+}
+
+export interface EmbeddingModelOption {
+  id: string
+  name: string
+}
+
+export async function getEmbeddingModels(): Promise<EmbeddingModelOption[]> {
+  const data = await request<{
+    models: Array<{ id: string; name: string }>
+  }>('/api/openrouter/embedding-models')
+  return data.models
 }
 
 export async function createJob(cfg: JobConfig): Promise<JobCreatedResponse> {

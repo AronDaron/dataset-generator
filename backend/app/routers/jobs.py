@@ -372,7 +372,7 @@ async def find_duplicate_examples(
     body: DuplicateRequest,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> DuplicatesResponse:
-    """Find near-duplicate example pairs using TF-IDF cosine similarity."""
+    """Find near-duplicate example pairs using embedding cosine similarity."""
     async with await db.execute(
         "SELECT id FROM jobs WHERE id = ?", (job_id,)
     ) as cur:
@@ -385,7 +385,16 @@ async def find_duplicate_examples(
         row = await cur.fetchone()
         total = row[0] if row else 0
 
-    pairs = await find_duplicates(db, job_id, body.threshold)
+    # Fetch API key and embedding model from settings
+    api_key = await _get_api_key(db)
+
+    async with await db.execute(
+        "SELECT value FROM settings WHERE key = 'embedding_model'"
+    ) as cur:
+        em_row = await cur.fetchone()
+    embedding_model = (em_row["value"] if em_row and em_row["value"] else "openai/text-embedding-3-small")
+
+    pairs = await find_duplicates(db, job_id, body.threshold, api_key, embedding_model)
     return DuplicatesResponse(pairs=pairs, total_examples=total)
 
 
