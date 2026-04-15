@@ -87,14 +87,18 @@ export function SettingsDialog({
           setLocalModel(config.default_model)
         }
       })
-      .catch(() => {})
+      .catch((err) => {
+        setSaveError(`Failed to load settings: ${err.message}`)
+      })
 
     setLoadingEmbeddingModels(true)
     getEmbeddingModels()
       .then((list) => {
         setEmbeddingModelOptions(list.map((m) => ({ value: m.id, label: m.name })))
       })
-      .catch(() => {})
+      .catch((err) => {
+        setSaveError(`Failed to load embedding models: ${err.message}`)
+      })
       .finally(() => setLoadingEmbeddingModels(false))
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 

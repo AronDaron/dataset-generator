@@ -87,7 +87,8 @@ async def upload_dataset_to_hf(
         )
     except RuntimeError as exc:
         detail = str(exc)
-        if "401" in detail or "403" in detail or "Invalid" in detail.lower():
+        dl = detail.lower()
+        if any(kw in dl for kw in ("401", "403", "invalid", "unauthorized", "forbidden", "authentication")):
             raise HTTPException(status_code=401, detail="Invalid HuggingFace token. Check your token in Settings.")
         raise HTTPException(status_code=500, detail=detail)
 

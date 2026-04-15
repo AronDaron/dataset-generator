@@ -350,6 +350,11 @@ async def list_examples(
 ) -> list[ExampleResponse]:
     """Paginated list of examples for a job, newest first."""
     async with await db.execute(
+        "SELECT id FROM jobs WHERE id = ?", (job_id,)
+    ) as cursor:
+        if not await cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Job not found")
+    async with await db.execute(
         "SELECT id, job_id, content_json, format, tokens, created_at, judge_score "
         "FROM examples WHERE job_id = ? "
         "ORDER BY created_at DESC LIMIT ? OFFSET ?",
