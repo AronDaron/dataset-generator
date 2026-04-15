@@ -8,6 +8,7 @@ import { toGroupedOptions } from '@/lib/model-utils'
 import { cn } from '@/lib/utils'
 
 interface ConfigSectionProps {
+  section?: 'all' | 'generation' | 'judge'
   model: string
   delay: number
   retryCount: number
@@ -38,6 +39,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 export function ConfigSection({
+  section = 'all',
   model,
   delay,
   retryCount,
@@ -120,9 +122,13 @@ export function ConfigSection({
     onJudgeProviderChange('')
   }
 
+  const showGeneration = section === 'all' || section === 'generation'
+  const showJudge = section === 'all' || section === 'judge'
+
   return (
     <div className="space-y-5">
       {/* ── Generation ──────────────────────────────── */}
+      {showGeneration && (
       <div className="space-y-3.5">
         <SectionLabel>Generation</SectionLabel>
 
@@ -130,14 +136,14 @@ export function ConfigSection({
         <div className="space-y-1.5">
           <label className="text-sm font-medium">Model</label>
           {!hasApiKey ? (
-            <p className="text-sm text-muted-foreground">Enter your API key above to load available models.</p>
+            <p className="text-sm text-muted-foreground">Enter your API key to load available models.</p>
           ) : (
             <>
               <SelectField
                 value={model}
                 onChange={handleModelChange}
                 options={modelOptions}
-                placeholder="Select model…"
+                placeholder="Select model..."
                 isLoading={loadingModels}
               />
               {modelsError && <p className="text-xs text-destructive">{modelsError}</p>}
@@ -177,11 +183,13 @@ export function ConfigSection({
           </div>
         </div>
       </div>
+      )}
 
       {/* Divider */}
-      <div className="border-t border-border/50" />
+      {showGeneration && showJudge && <div className="border-t border-border/50" />}
 
       {/* ── LLM Judge ───────────────────────────────── */}
+      {showJudge && (
       <div className="space-y-3.5">
         {/* Toggle row */}
         <div className="flex items-center justify-between">
@@ -272,6 +280,7 @@ export function ConfigSection({
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }

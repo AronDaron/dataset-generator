@@ -255,3 +255,42 @@ export async function getJobExamples(
     `/api/jobs/${jobId}/examples?limit=${limit}&offset=${offset}`,
   )
 }
+
+// ---- HuggingFace integration ----
+
+export interface HfTokenStatus {
+  has_token: boolean
+  token_preview: string | null
+}
+
+export async function getHfToken(): Promise<HfTokenStatus> {
+  return request<HfTokenStatus>('/api/settings/hf-token')
+}
+
+export async function saveHfToken(token: string): Promise<void> {
+  await request('/api/settings/hf-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+}
+
+export async function deleteHfToken(): Promise<void> {
+  await request('/api/settings/hf-token', { method: 'DELETE' })
+}
+
+export interface HfUploadResponse {
+  url: string
+  repo_name: string
+}
+
+export async function uploadToHuggingFace(
+  jobId: string,
+  req: { repo_name: string; private: boolean },
+): Promise<HfUploadResponse> {
+  return request<HfUploadResponse>(`/api/datasets/${jobId}/upload-hf`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+}

@@ -2,12 +2,21 @@
 
 import { useEffect, useState } from 'react'
 import { Dialog } from '@base-ui/react/dialog'
-import { X } from 'lucide-react'
+import { X, Key, Cpu, Scale } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ApiKeySection } from './ApiKeySection'
+import { HfTokenSection } from './HfTokenSection'
 import { ConfigSection } from './ConfigSection'
-import { getApiKey, getConfig, putConfig } from '@/lib/api'
+import { getApiKey, getHfToken, getConfig, putConfig } from '@/lib/api'
 import { cn } from '@/lib/utils'
+
+type SettingsTab = 'keys' | 'generation' | 'judge'
+
+const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
+  { id: 'keys', label: 'API Keys', icon: <Key className="size-4" /> },
+  { id: 'generation', label: 'Generation', icon: <Cpu className="size-4" /> },
+  { id: 'judge', label: 'LLM Judge', icon: <Scale className="size-4" /> },
+]
 
 interface SettingsDialogProps {
   open: boolean
@@ -30,11 +39,14 @@ export function SettingsDialog({
   onModelPricingChange,
   onJudgePricingChange,
 }: SettingsDialogProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('keys')
   const [hasKey, setHasKey] = useState(false)
   const [keyPreview, setKeyPreview] = useState<string | null>(null)
+  const [hasHfToken, setHasHfToken] = useState(false)
+  const [hfTokenPreview, setHfTokenPreview] = useState<string | null>(null)
   const [delay, setDelay] = useState(2)
   const [retryCount, setRetryCount] = useState(3)
-  const [retryCooldown, setRetryCooldown] = useState(15) // preserved, not exposed in UI
+  const [retryCooldown, setRetryCooldown] = useState(15)
   const [localModel, setLocalModel] = useState(model)
   const [judgeEnabled, setJudgeEnabled] = useState(false)
   const [judgeModel, setJudgeModel] = useState('')
@@ -45,7 +57,6 @@ export function SettingsDialog({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  // Load current settings when dialog opens
   useEffect(() => {
     if (!open) return
     setSaveError(null)
@@ -53,10 +64,12 @@ export function SettingsDialog({
     setLocalModel(model)
     setJudgeProvider(judgeProviderProp)
 
-    Promise.all([getApiKey(), getConfig()])
-      .then(([keyStatus, config]) => {
+    Promise.all([getApiKey(), getHfToken(), getConfig()])
+      .then(([keyStatus, hfStatus, config]) => {
         setHasKey(keyStatus.has_key)
         setKeyPreview(keyStatus.key_preview)
+        setHasHfToken(hfStatus.has_token)
+        setHfTokenPreview(hfStatus.token_preview)
         setDelay(config.delay_between_requests)
         setRetryCount(config.retry_count)
         setRetryCooldown(config.retry_cooldown)
@@ -68,10 +81,8 @@ export function SettingsDialog({
           setLocalModel(config.default_model)
         }
       })
-      .catch(() => {
-        // non-fatal: settings will be empty
-      })
-  }, [open]) // intentionally omit `model` — sync only on open
+      .catch(() => {})
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSave() {
     setSaving(true)
@@ -111,10 +122,11 @@ export function SettingsDialog({
         />
         <Dialog.Popup
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2',
-            'max-h-[90vh] overflow-y-auto',
+            'fixed left-1/2 top-1/2 z-50 w-full max-w-2xl -translate-x-1/2 -translate-y-1/2',
+            'max-h-[90vh] overflow-hidden',
             'rounded-2xl shadow-2xl',
             'ring-1 ring-white/10',
+            'flex flex-col',
           )}
           style={{
             background: 'oklch(0.13 0.026 232 / 0.97)',
@@ -122,7 +134,7 @@ export function SettingsDialog({
           }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/8 px-6 py-4">
+          <div className="flex items-center justify-between border-b border-white/8 px-6 py-4 shrink-0">
             <Dialog.Title className="text-base font-semibold">
               Settings
             </Dialog.Title>
@@ -135,41 +147,105 @@ export function SettingsDialog({
             />
           </div>
 
-          {/* Content */}
-          <div className="space-y-5 px-6 py-5">
-            <ApiKeySection
-              hasKey={hasKey}
-              keyPreview={keyPreview}
-              onKeyChange={(hk, preview) => {
-                setHasKey(hk)
-                setKeyPreview(preview)
-              }}
-            />
-            <ConfigSection
-              model={localModel}
-              delay={delay}
-              retryCount={retryCount}
-              onModelChange={setLocalModel}
-              onDelayChange={setDelay}
-              onRetryChange={setRetryCount}
-              hasApiKey={hasKey}
-              judgeEnabled={judgeEnabled}
-              judgeModel={judgeModel}
-              judgeThreshold={judgeThreshold}
-              judgeCriteria={judgeCriteria}
-              judgeProvider={judgeProvider}
-              onJudgeEnabledChange={setJudgeEnabled}
-              onJudgeModelChange={setJudgeModel}
-              onJudgeThresholdChange={setJudgeThreshold}
-              onJudgeCriteriaChange={setJudgeCriteria}
-              onJudgeProviderChange={setJudgeProvider}
-              onModelPricingChange={onModelPricingChange}
-              onJudgePricingChange={onJudgePricingChange}
-            />
+          {/* Body: sidebar + content */}
+          <div className="flex flex-1 min-h-0">
+            {/* Sidebar */}
+            <nav className="w-44 shrink-0 border-r border-white/8 py-3 px-2 space-y-0.5">
+              {TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors text-left',
+                    activeTab === tab.id
+                      ? 'bg-primary/15 text-primary'
+                      : 'text-muted-foreground hover:bg-white/5 hover:text-foreground',
+                  )}
+                >
+                  {tab.icon}
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+
+            {/* Content */}
+            <div className="flex-1 min-w-0 overflow-y-auto px-6 py-5">
+              {activeTab === 'keys' && (
+                <div className="space-y-6">
+                  <ApiKeySection
+                    hasKey={hasKey}
+                    keyPreview={keyPreview}
+                    onKeyChange={(hk, preview) => {
+                      setHasKey(hk)
+                      setKeyPreview(preview)
+                    }}
+                  />
+                  <div className="border-t border-border/50" />
+                  <HfTokenSection
+                    hasToken={hasHfToken}
+                    tokenPreview={hfTokenPreview}
+                    onTokenChange={(ht, preview) => {
+                      setHasHfToken(ht)
+                      setHfTokenPreview(preview)
+                    }}
+                  />
+                </div>
+              )}
+
+              {activeTab === 'generation' && (
+                <ConfigSection
+                  section="generation"
+                  model={localModel}
+                  delay={delay}
+                  retryCount={retryCount}
+                  onModelChange={setLocalModel}
+                  onDelayChange={setDelay}
+                  onRetryChange={setRetryCount}
+                  hasApiKey={hasKey}
+                  judgeEnabled={judgeEnabled}
+                  judgeModel={judgeModel}
+                  judgeThreshold={judgeThreshold}
+                  judgeCriteria={judgeCriteria}
+                  judgeProvider={judgeProvider}
+                  onJudgeEnabledChange={setJudgeEnabled}
+                  onJudgeModelChange={setJudgeModel}
+                  onJudgeThresholdChange={setJudgeThreshold}
+                  onJudgeCriteriaChange={setJudgeCriteria}
+                  onJudgeProviderChange={setJudgeProvider}
+                  onModelPricingChange={onModelPricingChange}
+                  onJudgePricingChange={onJudgePricingChange}
+                />
+              )}
+
+              {activeTab === 'judge' && (
+                <ConfigSection
+                  section="judge"
+                  model={localModel}
+                  delay={delay}
+                  retryCount={retryCount}
+                  onModelChange={setLocalModel}
+                  onDelayChange={setDelay}
+                  onRetryChange={setRetryCount}
+                  hasApiKey={hasKey}
+                  judgeEnabled={judgeEnabled}
+                  judgeModel={judgeModel}
+                  judgeThreshold={judgeThreshold}
+                  judgeCriteria={judgeCriteria}
+                  judgeProvider={judgeProvider}
+                  onJudgeEnabledChange={setJudgeEnabled}
+                  onJudgeModelChange={setJudgeModel}
+                  onJudgeThresholdChange={setJudgeThreshold}
+                  onJudgeCriteriaChange={setJudgeCriteria}
+                  onJudgeProviderChange={setJudgeProvider}
+                  onModelPricingChange={onModelPricingChange}
+                  onJudgePricingChange={onJudgePricingChange}
+                />
+              )}
+            </div>
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-2 border-t border-white/8 px-6 py-4">
+          <div className="flex items-center justify-end gap-2 border-t border-white/8 px-6 py-4 shrink-0">
             {saveError && (
               <p className="mr-auto text-sm text-destructive">{saveError}</p>
             )}

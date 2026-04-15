@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, Eye, FolderOpen, Trash2, Rocket, AlertCircle, CheckCircle2, XCircle } from 'lucide-react'
+import { ChevronLeft, Eye, FolderOpen, Trash2, Rocket, AlertCircle, CheckCircle2, XCircle, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getJobs, deleteJob, openDatasetsFolder, type JobListItem } from '@/lib/api'
+import { getJobs, getHfToken, deleteJob, openDatasetsFolder, type JobListItem } from '@/lib/api'
+import { UploadHfModal } from '@/components/history/UploadHfModal'
 
 type StatusFilter = 'all' | 'completed' | 'running' | 'failed' | 'cancelled'
 type FormatFilter = 'all' | 'sharegpt' | 'alpaca' | 'chatml'
@@ -112,9 +113,10 @@ interface JobRowProps {
   deletingId: string | null
   openingFolderId: string | null
   onOpenFolder: (id: string) => void
+  onUpload: (id: string) => void
 }
 
-function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder }: JobRowProps) {
+function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUpload }: JobRowProps) {
   const style = getStatusStyle(job.status)
   const isTerminal = ['completed', 'cancelled', 'failed'].includes(job.status)
   const totalCost = (job.actual_cost ?? 0) + (job.judge_cost ?? 0)
@@ -171,6 +173,16 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder }: Jo
             </Button>
           </Link>
         )}
+        {job.status === 'completed' && job.completed > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onUpload(job.id)}
+          >
+            <Upload className="size-3.5" />
+            Upload to HF
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"
@@ -204,10 +216,15 @@ export default function HistoryPage() {
   const [formatFilter, setFormatFilter] = useState<FormatFilter>('all')
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [openingFolderId, setOpeningFolderId] = useState<string | null>(null)
+  const [uploadJobId, setUploadJobId] = useState<string | null>(null)
+  const [hasHfToken, setHasHfToken] = useState(false)
 
   useEffect(() => {
-    getJobs()
-      .then(setJobs)
+    Promise.all([getJobs(), getHfToken()])
+      .then(([jobList, hfStatus]) => {
+        setJobs(jobList)
+        setHasHfToken(hfStatus.has_token)
+      })
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load jobs'))
       .finally(() => setLoading(false))
   }, [])
@@ -381,6 +398,7 @@ export default function HistoryPage() {
                 job={job}
                 onDelete={handleDelete}
                 onOpenFolder={handleOpenFolder}
+                onUpload={setUploadJobId}
                 deletingId={deletingId}
                 openingFolderId={openingFolderId}
               />
@@ -389,6 +407,16 @@ export default function HistoryPage() {
         )}
 
       </div>
+
+      {/* Upload to HuggingFace modal */}
+      {uploadJobId && (
+        <UploadHfModal
+          open
+          onClose={() => setUploadJobId(null)}
+          jobId={uploadJobId}
+          hasHfToken={hasHfToken}
+        />
+      )}
     </main>
   )
 }

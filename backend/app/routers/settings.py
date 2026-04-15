@@ -38,6 +38,15 @@ class ApiKeyResponse(BaseModel):
     key_preview: Optional[str] = None  # e.g. "...ab3f"
 
 
+class HfTokenRequest(BaseModel):
+    token: str = Field(..., min_length=1)
+
+
+class HfTokenResponse(BaseModel):
+    has_token: bool
+    token_preview: Optional[str] = None
+
+
 class GlobalConfig(BaseModel):
     delay_between_requests: float = Field(default=2.0, ge=0.0, le=60.0)
     retry_count: int = Field(default=3, ge=1, le=10)
@@ -139,3 +148,41 @@ async def update_config(
         )
     await db.commit()
     return body
+
+
+# ── HuggingFace Token ─────────────────────────────────────────
+
+
+@router.post("/hf-token", status_code=204)
+async def save_hf_token(
+    body: HfTokenRequest,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> None:
+    await db.execute(
+        """
+        INSERT INTO settings (key, value, updated_at)
+        VALUES ('hf_token', ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+        """,
+        (body.token, _now_iso()),
+    )
+    await db.commit()
+
+
+@router.get("/hf-token", response_model=HfTokenResponse)
+async def get_hf_token(db: aiosqlite.Connection = Depends(get_db)) -> HfTokenResponse:
+    async with await db.execute(
+        "SELECT value FROM settings WHERE key = 'hf_token'"
+    ) as cursor:
+        row = await cursor.fetchone()
+    if not row:
+        return HfTokenResponse(has_token=False)
+    token: str = row["value"]
+    preview = f"...{token[-4:]}" if len(token) >= 4 else "...****"
+    return HfTokenResponse(has_token=True, token_preview=preview)
+
+
+@router.delete("/hf-token", status_code=204)
+async def delete_hf_token(db: aiosqlite.Connection = Depends(get_db)) -> None:
+    await db.execute("DELETE FROM settings WHERE key = 'hf_token'")
+    await db.commit()
