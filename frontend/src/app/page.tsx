@@ -15,6 +15,33 @@ import { JobDashboard } from '@/components/generator/JobDashboard'
 
 type ExportFormat = 'sharegpt' | 'alpaca' | 'chatml'
 
+const DRAFT_KEY = 'generatorDraft'
+
+interface GeneratorDraft {
+  categories: Category[]
+  temperature: number
+  maxTokens: number
+  totalExamples: number
+  format: ExportFormat
+  conversationTurns: number
+}
+
+function loadDraft(): Partial<GeneratorDraft> {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw) as Partial<GeneratorDraft>
+  } catch {
+    return {}
+  }
+}
+
+function saveDraft(draft: GeneratorDraft) {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
+  } catch { /* quota exceeded — non-fatal */ }
+}
+
 function validateCategories(cats: Category[]): string | null {
   for (const cat of cats) {
     if (!cat.name.trim()) return 'Every category must have a name.'
@@ -45,6 +72,25 @@ export default function GeneratorPage() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [createdJobId, setCreatedJobId] = useState<string | null>(null)
   const [activeJobThreshold, setActiveJobThreshold] = useState(80)
+  const [draftLoaded, setDraftLoaded] = useState(false)
+
+  // Restore draft from localStorage AFTER hydration to avoid SSR mismatch
+  useEffect(() => {
+    const draft = loadDraft()
+    if (draft.categories?.length) setCategories(draft.categories)
+    if (draft.temperature != null) setTemperature(draft.temperature)
+    if (draft.maxTokens != null) setMaxTokens(draft.maxTokens)
+    if (draft.totalExamples != null) setTotalExamples(draft.totalExamples)
+    if (draft.format) setFormat(draft.format)
+    if (draft.conversationTurns != null) setConversationTurns(draft.conversationTurns)
+    setDraftLoaded(true)
+  }, [])
+
+  // Persist draft (categories + form settings) to localStorage
+  useEffect(() => {
+    if (!draftLoaded) return
+    saveDraft({ categories, temperature, maxTokens, totalExamples, format, conversationTurns })
+  }, [categories, temperature, maxTokens, totalExamples, format, conversationTurns, draftLoaded])
 
   // Persist active job across page reloads (e.g. HMR or accidental refresh)
   const SESSION_KEY = 'activeJobId'
