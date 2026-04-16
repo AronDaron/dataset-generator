@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, Rocket, AlertCircle, CheckCircle2, XCircle, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getJobs, getHfToken, deleteJob, openDatasetsFolder, findDuplicates, type JobListItem } from '@/lib/api'
+import { getJobs, getHfToken, deleteJob, openDatasetsFolder, findDuplicates, mergeDatasets, type JobListItem, type MergeResponse } from '@/lib/api'
 import { UploadHfModal } from '@/components/history/UploadHfModal'
 
 type StatusFilter = 'all' | 'completed' | 'running' | 'failed' | 'cancelled'
@@ -114,9 +114,11 @@ interface JobRowProps {
   openingFolderId: string | null
   onOpenFolder: (id: string) => void
   onUpload: (id: string) => void
+  selected: boolean
+  onToggle: (id: string) => void
 }
 
-function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUpload }: JobRowProps) {
+function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUpload, selected, onToggle }: JobRowProps) {
   const [dedupState, setDedupState] = useState<'idle' | 'scanning' | 'done'>('idle')
   const [dedupCount, setDedupCount] = useState(0)
 
@@ -136,7 +138,19 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-white/8 bg-white/3 px-5 py-5 sm:flex-row sm:items-center sm:gap-5">
+    <div className={cn(
+      "flex flex-col gap-4 rounded-xl border px-5 py-5 sm:flex-row sm:items-center sm:gap-5",
+      selected ? "border-primary/40 bg-primary/5" : "border-white/8 bg-white/3",
+    )}>
+      {/* Checkbox for completed jobs */}
+      {job.status === 'completed' && (
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggle(job.id)}
+          className="size-4 shrink-0 accent-[oklch(0.65_0.22_292)] cursor-pointer rounded"
+        />
+      )}
       {/* Status + date */}
       <div className="flex min-w-[130px] shrink-0 flex-col gap-1">
         <div className="flex items-center gap-2">
@@ -264,6 +278,11 @@ export default function HistoryPage() {
   const [openingFolderId, setOpeningFolderId] = useState<string | null>(null)
   const [uploadJobId, setUploadJobId] = useState<string | null>(null)
   const [hasHfToken, setHasHfToken] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [merging, setMerging] = useState(false)
+  const [mergeResult, setMergeResult] = useState<MergeResponse | null>(null)
+  const [mergeError, setMergeError] = useState<string | null>(null)
+  const [shuffleOnMerge, setShuffleOnMerge] = useState(true)
 
   useEffect(() => {
     Promise.all([getJobs(), getHfToken()])
@@ -294,6 +313,29 @@ export default function HistoryPage() {
     })
   }, [jobs, statusFilter, formatFilter])
 
+  // Clear selection when filters change
+  useEffect(() => {
+    setSelectedIds(new Set())
+    setMergeResult(null)
+    setMergeError(null)
+  }, [statusFilter, formatFilter])
+
+  const selectedJobs = useMemo(
+    () => filteredJobs.filter((j) => selectedIds.has(j.id)),
+    [filteredJobs, selectedIds],
+  )
+
+  const mergeInfo = useMemo(() => {
+    if (selectedJobs.length < 2) return { canMerge: false, formatMismatch: false }
+    const allCompleted = selectedJobs.every((j) => j.status === 'completed')
+    const formats = new Set(selectedJobs.map((j) => j.format))
+    const sameFormat = formats.size === 1
+    return {
+      canMerge: allCompleted && sameFormat,
+      formatMismatch: !sameFormat,
+    }
+  }, [selectedJobs])
+
   async function handleDelete(id: string) {
     if (!window.confirm('Delete this job and all its examples? This cannot be undone.')) return
     setDeletingId(id)
@@ -304,6 +346,32 @@ export default function HistoryPage() {
       alert(e instanceof Error ? e.message : 'Delete failed')
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  function handleToggle(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    setMergeResult(null)
+    setMergeError(null)
+  }
+
+  async function handleMerge() {
+    setMerging(true)
+    setMergeError(null)
+    setMergeResult(null)
+    try {
+      const result = await mergeDatasets({ job_ids: [...selectedIds], shuffle: shuffleOnMerge })
+      setMergeResult(result)
+      setSelectedIds(new Set())
+    } catch (err) {
+      setMergeError(err instanceof Error ? err.message : 'Merge failed')
+    } finally {
+      setMerging(false)
     }
   }
 
@@ -405,6 +473,60 @@ export default function HistoryPage() {
           </div>
         )}
 
+        {/* Merge action bar */}
+        {selectedIds.size > 0 && (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-5 py-3">
+            <span className="text-sm font-medium text-foreground">
+              {selectedIds.size} selected
+            </span>
+            <button
+              onClick={() => { setSelectedIds(new Set()); setMergeResult(null); setMergeError(null) }}
+              className="text-xs text-muted-foreground underline decoration-dotted hover:text-foreground"
+            >
+              Clear
+            </button>
+            <div className="h-4 w-px bg-white/10" />
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={shuffleOnMerge}
+                onChange={(e) => setShuffleOnMerge(e.target.checked)}
+                className="size-3.5 accent-[oklch(0.65_0.22_292)]"
+              />
+              Shuffle
+            </label>
+            <Button
+              size="sm"
+              onClick={handleMerge}
+              disabled={!mergeInfo.canMerge || merging}
+              className="btn-cta"
+            >
+              {merging ? (
+                <><Loader2 className="size-3.5 animate-spin" /> Merging...</>
+              ) : (
+                'Merge datasets'
+              )}
+            </Button>
+            {mergeInfo.formatMismatch && selectedIds.size >= 2 && (
+              <span className="text-xs text-amber-400">Selected jobs have different formats</span>
+            )}
+          </div>
+        )}
+
+        {/* Merge result / error */}
+        {mergeResult && (
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/8 px-5 py-3 text-sm text-emerald-400">
+            <CheckCircle2 className="size-4 shrink-0" />
+            Merged {mergeResult.total_examples.toLocaleString('en-US')} examples from {mergeResult.source_jobs} jobs
+          </div>
+        )}
+        {mergeError && (
+          <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/8 px-5 py-3 text-sm text-destructive">
+            <AlertCircle className="size-4 shrink-0" />
+            {mergeError}
+          </div>
+        )}
+
         {/* Content */}
         {loading && (
           <div className="rounded-xl border border-dashed border-white/10 py-16 text-center text-sm text-muted-foreground">
@@ -447,6 +569,8 @@ export default function HistoryPage() {
                 onUpload={setUploadJobId}
                 deletingId={deletingId}
                 openingFolderId={openingFolderId}
+                selected={selectedIds.has(job.id)}
+                onToggle={handleToggle}
               />
             ))}
           </div>

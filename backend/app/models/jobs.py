@@ -13,6 +13,10 @@ class CategoryConfig(BaseModel):
     provider: str | None = None
     prompt_price: float = 0.0
     completion_price: float = 0.0
+    judge_model: str | None = None
+    judge_provider: str | None = None
+    judge_prompt_price: float = 0.0
+    judge_completion_price: float = 0.0
 
 
 class JobConfig(BaseModel):
@@ -182,3 +186,17 @@ class JobStatsResponse(BaseModel):
     score_distribution: Optional[ScoreDistribution] = None
     token_stats: List[TokenStatsByCategory]
     generation_efficiency: List[GenerationEfficiency]
+
+
+# ---- Merge ----
+
+
+class MergeRequest(BaseModel):
+    job_ids: List[str] = Field(..., min_length=2)
+    shuffle: bool = True
+
+
+class MergeResponse(BaseModel):
+    path: str
+    total_examples: int
+    source_jobs: int

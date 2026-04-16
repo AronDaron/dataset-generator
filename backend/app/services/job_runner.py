@@ -508,6 +508,8 @@ async def _run_category(
     total_attempts = 0
     effective_model = cat.model or config.model
     effective_provider = cat.provider
+    effective_judge_model = cat.judge_model or config.judge_model or config.model
+    effective_judge_provider = cat.judge_provider or config.judge_provider
 
     while progress.categories[cat.name].completed < cat_target and total_attempts < max_attempts:
         if is_cancelled(job_id):
@@ -568,7 +570,6 @@ async def _run_category(
         total_judge_completion = 0
 
         if config.judge_enabled:
-            effective_judge_model = config.judge_model or config.model
             if progress.judge_stats is None:
                 progress.judge_stats = JudgeStats()
             accepted = False
@@ -584,7 +585,7 @@ async def _run_category(
                     score, judge_usage = await _judge_example(
                         content, config.format, effective_judge_model, api_key,
                         judge_criteria=config.judge_criteria,
-                        provider=config.judge_provider,
+                        provider=effective_judge_provider,
                     )
                 total_judge_prompt += judge_usage["prompt_tokens"]
                 total_judge_completion += judge_usage["completion_tokens"]
@@ -731,24 +732,33 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
             (c.model or config.model): (c.prompt_price, c.completion_price)
             for c in config.categories
         }
+        # Judge pricing per category (fallback: global → legacy)
+        j_pp_fallback = config.judge_prompt_price or config.judge_price_per_token
+        j_cp_fallback = config.judge_completion_price or config.judge_price_per_token
+        cat_judge_prices = {
+            c.name: (
+                c.judge_prompt_price or j_pp_fallback,
+                c.judge_completion_price or j_cp_fallback,
+            )
+            for c in config.categories
+        }
         async with db.execute(
-            "SELECT model, COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), "
+            "SELECT category, model, "
+            "       COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), "
             "       COALESCE(SUM(judge_prompt_tokens), 0), COALESCE(SUM(judge_completion_tokens), 0) "
-            "FROM examples WHERE job_id = ? GROUP BY model",
+            "FROM examples WHERE job_id = ? GROUP BY category, model",
             (job_id,),
         ) as cur:
             rows = await cur.fetchall()
 
-        has_new_usage = any(r[1] > 0 or r[2] > 0 for r in rows)
+        has_new_usage = any(r[2] > 0 or r[3] > 0 for r in rows)
         if has_new_usage:
             gen_cost = 0.0
             judge_cost = 0.0
-            # Judge pricing: prefer split prompt/completion, fallback to legacy averaged
-            j_pp = config.judge_prompt_price or config.judge_price_per_token
-            j_cp = config.judge_completion_price or config.judge_price_per_token
-            for model_id, pt, ct, jpt, jct in rows:
+            for cat_name, model_id, pt, ct, jpt, jct in rows:
                 pp, cp = cat_prices.get(model_id, (0.0, 0.0))
                 gen_cost += pt * pp + ct * cp
+                j_pp, j_cp = cat_judge_prices.get(cat_name, (j_pp_fallback, j_cp_fallback))
                 judge_cost += jpt * j_pp + jct * j_cp
             # Add overhead (topic + outline generation costs)
             for oh_model, oh_usage in overhead.get("by_model", {}).items():
@@ -761,7 +771,7 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
         else:
             # Fallback for old jobs (pre-migration) — use legacy averaged pricing
             if config.model_price_per_token > 0:
-                total_tokens = sum(r[1] + r[2] for r in rows) or 0
+                total_tokens = sum(r[2] + r[3] for r in rows) or 0
                 if total_tokens == 0:
                     async with db.execute(
                         "SELECT COALESCE(SUM(tokens), 0) FROM examples WHERE job_id = ?", (job_id,)

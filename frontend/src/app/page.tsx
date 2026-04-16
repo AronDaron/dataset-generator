@@ -177,6 +177,10 @@ export default function GeneratorPage() {
         categories: categories.map((c, i) => {
           const effectiveModelId = c.model || model
           const pricing = modelList.find((m) => m.id === effectiveModelId)?.pricing
+          const effectiveJudgeModelId = c.judgeModel || judgeModel
+          const jPricing = effectiveJudgeModelId
+            ? modelList.find((m) => m.id === effectiveJudgeModelId)?.pricing
+            : null
           return {
             name: c.name.trim(),
             description: c.description.trim(),
@@ -185,6 +189,10 @@ export default function GeneratorPage() {
             ...(c.provider ? { provider: c.provider } : {}),
             prompt_price: pricing ? parseFloat(pricing.prompt) : 0,
             completion_price: pricing ? parseFloat(pricing.completion) : 0,
+            ...(c.judgeModel ? { judge_model: c.judgeModel } : {}),
+            ...(c.judgeProvider ? { judge_provider: c.judgeProvider } : {}),
+            judge_prompt_price: jPricing ? parseFloat(jPricing.prompt) : (judgePricing ? parseFloat(judgePricing.prompt) : 0),
+            judge_completion_price: jPricing ? parseFloat(jPricing.completion) : (judgePricing ? parseFloat(judgePricing.completion) : 0),
           }
         }),
         total_examples: totalExamples,
@@ -260,6 +268,7 @@ export default function GeneratorPage() {
             categories={categories}
             onChange={setCategories}
             modelOptions={toGroupedOptions(modelList)}
+            judgeEnabled={judgeEnabled}
           />
         </div>
 

@@ -16,12 +16,14 @@ interface CategoryCardProps {
   totalCategories: number
   canRemove: boolean
   modelOptions?: SelectOption[]
+  judgeEnabled?: boolean
   onUpdate: (id: string, patch: Partial<Omit<Category, 'id'>>) => void
   onRemove: (id: string) => void
   onProportionChange: (id: string, value: number) => void
 }
 
 const USE_GLOBAL_OPTION: SelectOption = { value: '', label: '— Global model —' }
+const USE_GLOBAL_JUDGE_OPTION: SelectOption = { value: '', label: '— Global judge —' }
 const AUTO_PROVIDER_OPTION: SelectOption = { value: '', label: '— Auto —' }
 
 export function CategoryCard({
@@ -30,6 +32,7 @@ export function CategoryCard({
   totalCategories,
   canRemove,
   modelOptions = [],
+  judgeEnabled = false,
   onUpdate,
   onRemove,
   onProportionChange,
@@ -39,6 +42,8 @@ export function CategoryCard({
 
   const [providerOptions, setProviderOptions] = useState<SelectOption[]>([])
   const [loadingProviders, setLoadingProviders] = useState(false)
+  const [judgeProviderOptions, setJudgeProviderOptions] = useState<SelectOption[]>([])
+  const [loadingJudgeProviders, setLoadingJudgeProviders] = useState(false)
 
   useEffect(() => {
     const modelId = category.model
@@ -80,6 +85,46 @@ export function CategoryCard({
     }
   }, [category.model])
 
+  useEffect(() => {
+    const modelId = category.judgeModel
+    if (!modelId) {
+      setJudgeProviderOptions([])
+      return
+    }
+    let cancelled = false
+    setLoadingJudgeProviders(true)
+    getModelEndpoints(modelId)
+      .then((endpoints) => {
+        if (cancelled) return
+        const seen = new Set<string>()
+        const opts: SelectOption[] = endpoints
+          .filter((e) => {
+            const key = e.provider_name || e.name
+            if (!key || seen.has(key)) return false
+            seen.add(key)
+            return true
+          })
+          .map((e) => {
+            const routingName = e.provider_name || e.name
+            const parts: string[] = [routingName]
+            if (e.latency != null) parts.push(`${Math.round(e.latency)}ms`)
+            if (e.uptime_last_30m != null)
+              parts.push(`${e.uptime_last_30m.toFixed(1)}% up`)
+            return { value: routingName, label: parts.join(' · ') }
+          })
+        setJudgeProviderOptions(opts)
+      })
+      .catch(() => {
+        if (!cancelled) setJudgeProviderOptions([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingJudgeProviders(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [category.judgeModel])
+
   function handleModelChange(val: string) {
     onUpdate(category.id, { model: val || undefined, provider: undefined })
   }
@@ -88,11 +133,25 @@ export function CategoryCard({
     onUpdate(category.id, { provider: val || undefined })
   }
 
+  function handleJudgeModelChange(val: string) {
+    onUpdate(category.id, { judgeModel: val || undefined, judgeProvider: undefined })
+  }
+
+  function handleJudgeProviderChange(val: string) {
+    onUpdate(category.id, { judgeProvider: val || undefined })
+  }
+
   const modelSelectOptions: SelectOption[] =
     modelOptions.length > 0 ? [USE_GLOBAL_OPTION, ...modelOptions] : []
 
   const providerSelectOptions: SelectOption[] =
     providerOptions.length > 0 ? [AUTO_PROVIDER_OPTION, ...providerOptions] : []
+
+  const judgeModelSelectOptions: SelectOption[] =
+    modelOptions.length > 0 ? [USE_GLOBAL_JUDGE_OPTION, ...modelOptions] : []
+
+  const judgeProviderSelectOptions: SelectOption[] =
+    judgeProviderOptions.length > 0 ? [AUTO_PROVIDER_OPTION, ...judgeProviderOptions] : []
 
   return (
     <Card
@@ -158,6 +217,37 @@ export function CategoryCard({
               ) : (
                 <div className="flex h-[34px] items-center rounded-lg border border-white/8 bg-white/3 px-3 text-xs text-white/20 select-none">
                   select model first
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Judge model + provider (only when judge is enabled globally) */}
+        {judgeEnabled && judgeModelSelectOptions.length > 0 && (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="min-w-0 space-y-1">
+              <p className="text-xs text-muted-foreground">Judge model</p>
+              <SelectField
+                value={category.judgeModel ?? ''}
+                onChange={handleJudgeModelChange}
+                options={judgeModelSelectOptions}
+                placeholder="Global judge"
+              />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <p className="text-xs text-muted-foreground">Judge provider</p>
+              {category.judgeModel ? (
+                <SelectField
+                  value={category.judgeProvider ?? ''}
+                  onChange={handleJudgeProviderChange}
+                  options={judgeProviderSelectOptions}
+                  placeholder="Auto"
+                  isLoading={loadingJudgeProviders}
+                />
+              ) : (
+                <div className="flex h-[34px] items-center rounded-lg border border-white/8 bg-white/3 px-3 text-xs text-white/20 select-none">
+                  select judge model first
                 </div>
               )}
             </div>

@@ -8,8 +8,10 @@ export interface Category {
   name: string
   description: string
   proportion: number // integer 1–99 (min 1 per category), sum === 100
-  model?: string    // per-category model override (undefined = use global)
-  provider?: string // per-category provider override (undefined = auto)
+  model?: string       // per-category model override (undefined = use global)
+  provider?: string    // per-category provider override (undefined = auto)
+  judgeModel?: string  // per-category judge model override (undefined = use global judge)
+  judgeProvider?: string // per-category judge provider override (undefined = use global judge provider)
 }
 
 // Distribute `total` across `n` slots as evenly as possible using integers.

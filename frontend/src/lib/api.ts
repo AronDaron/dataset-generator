@@ -34,6 +34,10 @@ export interface CategoryConfig {
   provider?: string
   prompt_price?: number
   completion_price?: number
+  judge_model?: string
+  judge_provider?: string
+  judge_prompt_price?: number
+  judge_completion_price?: number
 }
 
 export interface JobConfig {
@@ -400,5 +404,26 @@ export async function deleteExample(
 ): Promise<void> {
   await request(`/api/jobs/${jobId}/examples/${exampleId}`, {
     method: 'DELETE',
+  })
+}
+
+// ---- Merge ----
+
+export interface MergeRequest {
+  job_ids: string[]
+  shuffle?: boolean
+}
+
+export interface MergeResponse {
+  path: string
+  total_examples: number
+  source_jobs: number
+}
+
+export async function mergeDatasets(req: MergeRequest): Promise<MergeResponse> {
+  return request<MergeResponse>('/api/datasets/merge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
   })
 }
