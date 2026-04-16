@@ -76,6 +76,13 @@ def _row_to_list_item(row) -> JobListItem:
         actual_cost = progress.actual_cost
         judge_cost = progress.judge_cost
     category_models = [cat.model or config.model for cat in config.categories]
+    # Detect merged jobs by checking for merged_from in config_json
+    is_merged = False
+    try:
+        raw_cfg = json.loads(row["config_json"])
+        is_merged = "merged_from" in raw_cfg
+    except (json.JSONDecodeError, TypeError):
+        pass
     return JobListItem(
         id=row["id"],
         status=row["status"],
@@ -88,6 +95,7 @@ def _row_to_list_item(row) -> JobListItem:
         updated_at=row["updated_at"],
         actual_cost=actual_cost,
         judge_cost=judge_cost,
+        is_merged=is_merged,
     )
 
 

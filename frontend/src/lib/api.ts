@@ -246,6 +246,7 @@ export interface JobListItem {
   updated_at: string
   actual_cost?: number | null
   judge_cost?: number | null
+  is_merged?: boolean
 }
 
 export async function getJobs(): Promise<JobListItem[]> {
@@ -417,6 +418,7 @@ export interface MergeRequest {
 }
 
 export interface MergeResponse {
+  job_id: string
   path: string
   total_examples: number
   source_jobs: number

@@ -28,7 +28,7 @@ async def init_db() -> None:
             known_ids = {row[0] for row in await cursor.fetchall()}
         removed = 0
         for f in datasets_dir.glob("*.jsonl"):
-            if f.stem not in known_ids and not f.stem.startswith("merged_"):
+            if f.stem not in known_ids:
                 try:
                     f.unlink()
                     removed += 1

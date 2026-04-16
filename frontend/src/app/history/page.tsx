@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, Rocket, AlertCircle, CheckCircle2, XCircle, Upload } from 'lucide-react'
+import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, Rocket, AlertCircle, CheckCircle2, XCircle, Upload, Merge } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getJobs, getHfToken, deleteJob, openDatasetsFolder, findDuplicates, mergeDatasets, type JobListItem, type MergeResponse } from '@/lib/api'
@@ -160,6 +160,12 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
           <span className={cn('text-sm font-semibold', style.label)}>
             {STATUS_LABELS[job.status] ?? job.status}
           </span>
+          {job.is_merged && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-400">
+              <Merge className="size-3" />
+              Merged
+            </span>
+          )}
         </div>
         <span className="text-xs text-muted-foreground">{formatDate(job.created_at)}</span>
       </div>
@@ -368,6 +374,9 @@ export default function HistoryPage() {
       const result = await mergeDatasets({ job_ids: [...selectedIds], shuffle: shuffleOnMerge })
       setMergeResult(result)
       setSelectedIds(new Set())
+      // Refresh job list so the new merged job appears
+      const refreshed = await getJobs()
+      setJobs(refreshed)
     } catch (err) {
       setMergeError(err instanceof Error ? err.message : 'Merge failed')
     } finally {
@@ -518,6 +527,12 @@ export default function HistoryPage() {
           <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/8 px-5 py-3 text-sm text-emerald-400">
             <CheckCircle2 className="size-4 shrink-0" />
             Merged {mergeResult.total_examples.toLocaleString('en-US')} examples from {mergeResult.source_jobs} jobs
+            <Link href={`/jobs/${mergeResult.job_id}`}>
+              <Button variant="outline" size="sm" className="ml-2 h-7 gap-1 border-emerald-500/30 text-emerald-400 hover:border-emerald-500/50">
+                <Eye className="size-3" />
+                View
+              </Button>
+            </Link>
           </div>
         )}
         {mergeError && (

@@ -107,6 +107,7 @@ class JobListItem(BaseModel):
     updated_at: str
     actual_cost: float | None = None
     judge_cost: float | None = None
+    is_merged: bool = False
 
 
 class ExampleResponse(BaseModel):
@@ -199,6 +200,7 @@ class MergeRequest(BaseModel):
 
 
 class MergeResponse(BaseModel):
+    job_id: str
     path: str
     total_examples: int
     source_jobs: int

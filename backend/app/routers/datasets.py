@@ -5,6 +5,7 @@ import logging
 import random
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 
 import aiosqlite
@@ -16,6 +17,7 @@ from app.database import get_db
 from app.models.jobs import MergeRequest, MergeResponse
 from app.services.export_service import export_job
 from app.services.hf_service import upload_to_huggingface
+from app.utils import now_iso as _now_iso
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -104,7 +106,7 @@ async def merge_datasets(
     body: MergeRequest,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> MergeResponse:
-    """Merge examples from multiple completed jobs into a single JSONL file."""
+    """Merge examples from multiple completed jobs into a single merged job."""
     placeholders = ",".join("?" * len(body.job_ids))
 
     # 1. Validate all jobs exist and are completed
@@ -125,9 +127,11 @@ async def merge_datasets(
 
     # 2. Validate all jobs have the same format
     formats = set()
+    configs = []
     for row in rows:
         try:
             cfg = json.loads(row["config_json"])
+            configs.append(cfg)
             formats.add(cfg.get("format", "unknown"))
         except (json.JSONDecodeError, TypeError):
             formats.add("unknown")
@@ -138,9 +142,13 @@ async def merge_datasets(
             detail=f"Cannot merge jobs with different formats: {', '.join(formats)}",
         )
 
-    # 3. Fetch all examples
+    dataset_format = formats.pop()
+
+    # 3. Fetch all examples (full rows for copying into new job)
     async with await db.execute(
-        f"SELECT content_json FROM examples WHERE job_id IN ({placeholders}) ORDER BY created_at ASC",
+        f"SELECT content_json, format, tokens, judge_score, category, model, "
+        f"prompt_tokens, completion_tokens, judge_prompt_tokens, judge_completion_tokens "
+        f"FROM examples WHERE job_id IN ({placeholders}) ORDER BY created_at ASC",
         body.job_ids,
     ) as cursor:
         example_rows = await cursor.fetchall()
@@ -148,26 +156,109 @@ async def merge_datasets(
     if not example_rows:
         raise HTTPException(status_code=404, detail="No examples found in selected jobs")
 
-    contents = [row["content_json"] for row in example_rows]
+    examples = [dict(row) for row in example_rows]
 
     # 4. Shuffle if requested
     if body.shuffle:
-        random.shuffle(contents)
+        random.shuffle(examples)
 
-    # 5. Write merged JSONL
+    total_examples = len(examples)
+
+    # 5. Create merged job in DB
+    merged_job_id = str(uuid.uuid4())
+    now = _now_iso()
+
+    # Collect unique categories across source jobs
+    all_categories: dict[str, dict] = {}
+    for cfg in configs:
+        for cat in cfg.get("categories", []):
+            if cat["name"] not in all_categories:
+                all_categories[cat["name"]] = cat
+
+    # Build a minimal config for the merged job
+    merged_categories = list(all_categories.values())
+    # Normalize proportions to sum to 1.0
+    n_cats = len(merged_categories)
+    for cat in merged_categories:
+        cat["proportion"] = round(1.0 / n_cats, 4)
+    if merged_categories:
+        merged_categories[-1]["proportion"] = round(
+            1.0 - sum(c["proportion"] for c in merged_categories[:-1]), 4
+        )
+
+    # Determine judge_enabled from any source
+    any_judge = any(cfg.get("judge_enabled", False) for cfg in configs)
+
+    merged_config = {
+        "categories": merged_categories,
+        "total_examples": max(total_examples, 10),
+        "temperature": configs[0].get("temperature", 0.7),
+        "max_tokens": max(cfg.get("max_tokens", 2048) for cfg in configs),
+        "model": "merged",
+        "format": dataset_format,
+        "judge_enabled": any_judge,
+        "conversation_turns": max(cfg.get("conversation_turns", 1) for cfg in configs),
+        "merged_from": body.job_ids,
+    }
+
+    # Build progress for the merged job
+    cat_counts: dict[str, int] = {}
+    for ex in examples:
+        cat_name = ex["category"] or "Unknown"
+        cat_counts[cat_name] = cat_counts.get(cat_name, 0) + 1
+
+    merged_progress = {
+        "total_examples": total_examples,
+        "completed": total_examples,
+        "skipped": 0,
+        "current_stage": "completed",
+        "categories": {
+            name: {"target": count, "completed": count, "skipped": 0}
+            for name, count in cat_counts.items()
+        },
+    }
+
+    await db.execute(
+        "INSERT INTO jobs (id, status, config_json, progress_json, created_at, updated_at) "
+        "VALUES (?, 'completed', ?, ?, ?, ?)",
+        (merged_job_id, json.dumps(merged_config), json.dumps(merged_progress), now, now),
+    )
+
+    # 6. Copy examples into the new merged job
+    for ex in examples:
+        ex_id = str(uuid.uuid4())
+        await db.execute(
+            "INSERT INTO examples "
+            "(id, job_id, content_json, format, tokens, judge_score, category, model, "
+            "prompt_tokens, completion_tokens, judge_prompt_tokens, judge_completion_tokens) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                ex_id, merged_job_id, ex["content_json"], ex["format"],
+                ex["tokens"], ex["judge_score"], ex["category"] or "",
+                ex["model"] or "", ex["prompt_tokens"], ex["completion_tokens"],
+                ex["judge_prompt_tokens"], ex["judge_completion_tokens"],
+            ),
+        )
+
+    await db.commit()
+
+    # 7. Export JSONL file for the merged job
     settings.datasets_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = settings.datasets_dir / f"merged_{timestamp}.jsonl"
+    out_path = settings.datasets_dir / f"{merged_job_id}.jsonl"
 
     with out_path.open("w", encoding="utf-8") as fh:
-        for content_json in contents:
-            obj = json.loads(content_json)
+        for ex in examples:
+            obj = json.loads(ex["content_json"])
             fh.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
-    logger.info("Merged %d examples from %d jobs → %s", len(contents), len(body.job_ids), out_path)
+    logger.info(
+        "Merged %d examples from %d jobs → job %s (%s)",
+        total_examples, len(body.job_ids), merged_job_id, out_path,
+    )
 
     return MergeResponse(
+        job_id=merged_job_id,
         path=str(out_path),
-        total_examples=len(contents),
+        total_examples=total_examples,
         source_jobs=len(body.job_ids),
     )
