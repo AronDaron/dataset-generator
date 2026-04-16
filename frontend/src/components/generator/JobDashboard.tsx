@@ -104,24 +104,6 @@ function StatChip({
   )
 }
 
-function extractPreview(example: SSEExample): string {
-  const c = example.content
-  if (c == null || typeof c !== 'object' || Array.isArray(c)) return '(no preview)'
-  const obj = c as Record<string, unknown>
-  if (Array.isArray(obj.conversations)) {
-    const first = (obj.conversations as Record<string, unknown>[])[0]
-    if (first?.value) return String(first.value).slice(0, 120)
-  }
-  if (typeof obj.instruction === 'string') return obj.instruction.slice(0, 120)
-  if (Array.isArray(obj.messages)) {
-    const first = (obj.messages as Record<string, unknown>[])[0]
-    if (first?.content) return String(first.content).slice(0, 120)
-  }
-  for (const v of Object.values(obj)) {
-    if (typeof v === 'string') return v.slice(0, 120)
-  }
-  return '(no preview)'
-}
 
 interface JobDashboardProps {
   jobId: string
@@ -178,7 +160,7 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
   return (
     <div className="space-y-3">
       {/* Job ID */}
-      <p className="font-mono text-[10px] text-muted-foreground/50 tracking-wider truncate">{jobId}</p>
+      <p className="font-mono text-xs text-muted-foreground tracking-wider truncate">{jobId}</p>
 
       {/* SSE error */}
       {sseError && (
@@ -270,7 +252,7 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
       {/* Per-category progress */}
       {categoryEntries.length > 0 && (
         <div className="rounded-xl border border-white/8 bg-white/3 p-4 space-y-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             Categories
           </p>
           {categoryEntries.map(([name, cat], i) => {
@@ -310,7 +292,7 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
       {/* Live examples feed */}
       {(examples.length > 0 || isRunning) && (
         <div className="rounded-xl border border-white/8 bg-white/3 p-4 space-y-2">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             Recent examples
           </p>
           {examples.length === 0 && isRunning && (
@@ -327,30 +309,33 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
                 className="rounded-lg border border-white/6 bg-white/3 px-3 py-2"
               >
                 <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/60">
+                  <span className="text-xs font-medium text-foreground/90 truncate">
+                    {ex.category || 'Unknown'}
+                  </span>
+                  <span className="font-mono text-xs text-muted-foreground truncate max-w-[180px]">
+                    {ex.model ? ex.model.split('/').pop() : '—'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
                     {ex.format}
                   </span>
-                  <div className="flex items-center gap-1.5">
-                    {ex.judge_score != null && (
-                      <span
-                        className={cn(
-                          'rounded px-1.5 py-0.5 font-mono text-xs font-semibold',
-                          ex.judge_score >= judgeThreshold
-                            ? 'bg-emerald-500/12 text-emerald-400'
-                            : 'bg-amber-500/12 text-amber-400',
-                        )}
-                      >
-                        {ex.judge_score}
-                      </span>
-                    )}
-                    <span className="font-mono tabular-nums text-xs text-muted-foreground">
-                      {ex.tokens} tok
+                  {ex.judge_score != null && (
+                    <span
+                      className={cn(
+                        'rounded px-1.5 py-0.5 font-mono text-xs font-semibold',
+                        ex.judge_score >= judgeThreshold
+                          ? 'bg-emerald-500/12 text-emerald-400'
+                          : 'bg-amber-500/12 text-amber-400',
+                      )}
+                    >
+                      {ex.judge_score}
                     </span>
-                  </div>
+                  )}
+                  <span className="font-mono tabular-nums text-xs text-muted-foreground">
+                    {ex.tokens} tok
+                  </span>
                 </div>
-                <p className="line-clamp-2 break-words text-xs text-foreground/80">
-                  {extractPreview(ex)}
-                </p>
               </div>
             ))}
           </div>

@@ -1,6 +1,7 @@
 'use client'
 
 import { Plus, Check } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { CategoryCard } from './CategoryCard'
 import {
   type Category,
@@ -135,14 +136,14 @@ export function CategoryList({ categories, onChange, modelOptions = [], judgeEna
       {/* Header */}
       <div>
         <h2 className="text-sm font-semibold tracking-wide text-foreground/90">Dataset categories</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground/70">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           Select preset categories or add a custom one. Proportions must sum to 100%.
         </p>
       </div>
 
       {/* Preset chips */}
       <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70">
+        <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
           Presets
         </p>
         <div className="flex flex-wrap gap-2">
@@ -196,24 +197,33 @@ export function CategoryList({ categories, onChange, modelOptions = [], judgeEna
       {categories.length > 0 && (
         <div className="space-y-3.5">
           <div className="flex items-center gap-3">
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70">
+            <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
               Active ({categories.length}/10)
             </p>
             {/* Proportion bar */}
-            <div className="flex h-1.5 flex-1 overflow-hidden rounded-full">
+            <div className="flex h-4 flex-1 overflow-hidden rounded-full">
               {categories.map((cat, i) => (
                 <div
                   key={cat.id}
-                  className={CATEGORY_COLORS[i % CATEGORY_COLORS.length]}
+                  className={cn(
+                    CATEGORY_COLORS[i % CATEGORY_COLORS.length],
+                    'flex items-center justify-center transition-all duration-300',
+                  )}
                   style={{ width: `${cat.proportion}%` }}
                   title={`${cat.name || 'Category'}: ${cat.proportion}%`}
-                />
+                >
+                  {cat.proportion >= 18 && (
+                    <span className="text-xs font-semibold text-white/90 drop-shadow-sm truncate px-1">
+                      {cat.proportion}%
+                    </span>
+                  )}
+                </div>
               ))}
             </div>
           </div>
 
           {/* 2-column grid on larger screens */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             {categories.map((cat, i) => (
               <CategoryCard
                 key={cat.id}

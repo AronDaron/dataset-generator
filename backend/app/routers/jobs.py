@@ -254,7 +254,7 @@ async def _stream_job_progress(
             job_row = await cursor.fetchone()
 
         async with await db.execute(
-            "SELECT id, job_id, content_json, format, tokens, created_at, judge_score "
+            "SELECT id, job_id, content_json, format, tokens, created_at, judge_score, category, model "
             "FROM examples WHERE job_id = ? ORDER BY created_at DESC LIMIT 5",
             (job_id,),
         ) as cursor:
@@ -271,6 +271,8 @@ async def _stream_job_progress(
                 "tokens": r["tokens"],
                 "created_at": r["created_at"],
                 "judge_score": r["judge_score"],
+                "category": r["category"],
+                "model": r["model"],
             }
             for r in ex_rows
         ]
@@ -355,7 +357,7 @@ async def list_examples(
         if not await cursor.fetchone():
             raise HTTPException(status_code=404, detail="Job not found")
     async with await db.execute(
-        "SELECT id, job_id, content_json, format, tokens, created_at, judge_score "
+        "SELECT id, job_id, content_json, format, tokens, created_at, judge_score, category, model "
         "FROM examples WHERE job_id = ? "
         "ORDER BY created_at DESC LIMIT ? OFFSET ?",
         (job_id, limit, offset),
@@ -370,6 +372,8 @@ async def list_examples(
             tokens=row["tokens"],
             created_at=row["created_at"],
             judge_score=row["judge_score"],
+            category=row["category"],
+            model=row["model"],
         )
         for row in rows
     ]

@@ -84,12 +84,12 @@ function CategoryModels({ models, globalModel }: { models: string[]; globalModel
 
   return (
     <div className="flex items-center gap-1.5">
-      <span className="shrink-0 text-[10px] text-muted-foreground/60">Per cat:</span>
+      <span className="shrink-0 text-xs text-muted-foreground">Per cat:</span>
       <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
         {visible.map((m, i) => (
           <span key={i} className={cn(
             'max-w-[160px] truncate font-mono text-xs',
-            allSameAsGlobal ? 'text-muted-foreground/50' : 'text-foreground/70',
+            allSameAsGlobal ? 'text-muted-foreground' : 'text-foreground/70',
           )}>
             {m}{i < visible.length - 1 || hidden.length > 0 ? ',' : ''}
           </span>
@@ -168,7 +168,7 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         {/* Global model */}
         <div className="flex items-center gap-1.5">
-          <span className="shrink-0 text-[10px] text-muted-foreground/60">Global:</span>
+          <span className="shrink-0 text-xs text-muted-foreground">Global:</span>
           <span className="max-w-[220px] truncate font-mono text-xs text-foreground/80">
             {job.model}
           </span>
@@ -177,7 +177,7 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
         <CategoryModels models={job.category_models} globalModel={job.model} />
         {/* Format + examples + cost */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider text-muted-foreground">
             {job.format}
           </span>
           <span className="text-xs text-muted-foreground tabular-nums">

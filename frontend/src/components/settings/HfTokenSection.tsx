@@ -56,7 +56,7 @@ export function HfTokenSection({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70">
+      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
         HuggingFace Token
       </p>
 

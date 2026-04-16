@@ -12,7 +12,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   return (
     <div className="my-3">
       {lang && (
-        <span className="inline-block rounded-t border border-b-0 border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        <span className="inline-block rounded-t border border-b-0 border-white/10 bg-white/5 px-2 py-0.5 font-mono text-xs uppercase tracking-wider text-muted-foreground">
           {lang}
         </span>
       )}

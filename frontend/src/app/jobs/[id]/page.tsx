@@ -70,7 +70,7 @@ function TurnBlock({ turn }: { turn: Turn }) {
       <div className="mb-3 flex items-center gap-2">
         <span
           className={cn(
-            'inline-flex items-center rounded border px-2 py-0.5 font-mono text-[10px] font-semibold tracking-widest uppercase',
+            'inline-flex items-center rounded border px-2 py-0.5 font-mono text-xs font-semibold tracking-widest uppercase',
             chipClass,
           )}
         >
@@ -142,7 +142,7 @@ function ExampleListItem({ example, index, isSelected, onClick }: ExampleListIte
         {example.judge_score != null && (
           <span
             className={cn(
-              'shrink-0 rounded border px-1.5 py-0 font-mono text-[10px] font-semibold',
+              'shrink-0 rounded border px-1.5 py-0 font-mono text-xs font-semibold',
               scoreBg(example.judge_score),
               scoreColor(example.judge_score),
             )}
@@ -154,7 +154,7 @@ function ExampleListItem({ example, index, isSelected, onClick }: ExampleListIte
       <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-foreground/70">
         {preview || <span className="italic text-muted-foreground">No preview</span>}
       </p>
-      <div className="mt-1.5 font-mono text-[10px] text-muted-foreground/60">
+      <div className="mt-1.5 font-mono text-xs text-muted-foreground">
         {example.tokens.toLocaleString('en-US')} tok
       </div>
     </button>
@@ -248,7 +248,7 @@ export default function JobDetailPage() {
           {job && (
             <>
               <div className="h-4 w-px bg-white/10" />
-              <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider text-muted-foreground">
                 {job.config.format}
               </span>
               <span className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">
@@ -345,7 +345,7 @@ export default function JobDetailPage() {
               </div>
             )}
             {!hasMore && examples.length >= PAGE_LIMIT && (
-              <div className="border-t border-white/8 px-3 py-2 text-center text-[10px] text-muted-foreground/60">
+              <div className="border-t border-white/8 px-3 py-2 text-center text-xs text-muted-foreground">
                 All {examples.length} examples loaded
               </div>
             )}

@@ -186,6 +186,8 @@ export interface SSEExample {
   tokens: number
   created_at: string
   judge_score: number | null
+  category: string
+  model: string
 }
 
 export interface SSEProgressPayload {

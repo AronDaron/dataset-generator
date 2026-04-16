@@ -39,7 +39,7 @@ export function GlobalControls({
 
   return (
     <div>
-      <p className="mb-2.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">
+      <p className="mb-2.5 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
         Parameters
       </p>
       <Card>

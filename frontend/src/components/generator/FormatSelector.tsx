@@ -30,7 +30,7 @@ interface FormatSelectorProps {
 export function FormatSelector({ value, onChange }: FormatSelectorProps) {
   return (
     <div className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">
+      <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
         Export format
       </p>
       <div className="grid grid-cols-3 gap-1 rounded-xl border border-white/7 bg-black/25 p-1">
@@ -61,8 +61,8 @@ export function FormatSelector({ value, onChange }: FormatSelectorProps) {
               </span>
               <span
                 className={cn(
-                  'text-[11px] leading-tight transition-colors',
-                  active ? 'text-primary/55' : 'text-muted-foreground/60',
+                  'text-xs leading-tight transition-colors',
+                  active ? 'text-primary/55' : 'text-muted-foreground',
                 )}
               >
                 {f.description}

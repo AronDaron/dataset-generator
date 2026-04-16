@@ -205,17 +205,17 @@ function ExampleCard({
     >
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] font-bold">
+          <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-xs font-bold">
             {label}
           </span>
-          <span className="text-[11px] text-muted-foreground">{tokens} tok</span>
+          <span className="text-xs text-muted-foreground">{tokens} tok</span>
           {judgeScore != null && (
-            <span className={cn('text-[11px] font-medium', scoreColor(judgeScore))}>
+            <span className={cn('text-xs font-medium', scoreColor(judgeScore))}>
               Judge: {judgeScore}
             </span>
           )}
           {isLowerScored && (
-            <span className="text-[10px] text-amber-400/70">lower score</span>
+            <span className="text-xs text-amber-400/70">lower score</span>
           )}
         </div>
         <Button
@@ -411,7 +411,7 @@ export function DeduplicateModal({
                     onChange={(e) => setThreshold(parseFloat(e.target.value))}
                     className="w-full accent-violet-500"
                   />
-                  <div className="flex justify-between text-[11px] text-muted-foreground">
+                  <div className="flex justify-between text-xs text-muted-foreground">
                     <span>0.50 - Loose</span>
                     <span className="font-medium text-foreground/70">{thresholdLabel}</span>
                     <span>1.00 - Identical</span>

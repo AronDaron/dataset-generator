@@ -109,7 +109,7 @@ function ScoreHistogram({ buckets, maxCount }: { buckets: ScoreBucket[]; maxCoun
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
       {children}
     </h3>
   )
@@ -184,7 +184,7 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
               <Dialog.Title className="text-base font-semibold">
                 Quality Report
               </Dialog.Title>
-              <span className="rounded bg-white/8 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              <span className="rounded bg-white/8 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
                 #{shortId}
               </span>
             </div>
@@ -231,7 +231,7 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
                       </span>
                     </div>
                     <ScoreHistogram buckets={dist.buckets} maxCount={maxBucketCount} />
-                    <div className="mt-3 flex gap-4 border-t border-white/6 pt-3 font-mono text-[11px] text-muted-foreground">
+                    <div className="mt-3 flex gap-4 border-t border-white/6 pt-3 font-mono text-xs text-muted-foreground">
                       <span>Min: {dist.min_score}</span>
                       <span>Median: {dist.median_score}</span>
                       <span>Max: {dist.max_score}</span>
@@ -249,7 +249,7 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
                     <div className="overflow-x-auto">
                       <table className="w-full text-left">
                         <thead>
-                          <tr className="border-b border-white/6 text-[11px] uppercase tracking-wider text-muted-foreground">
+                          <tr className="border-b border-white/6 text-xs uppercase tracking-wider text-muted-foreground">
                             <th className="pb-2 pr-4 font-medium">Category</th>
                             <th className="pb-2 pr-4 text-right font-medium">Examples</th>
                             <th className="pb-2 pr-4 text-right font-medium">Avg Tokens</th>
@@ -280,7 +280,7 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
                     <div className="overflow-x-auto">
                       <table className="w-full text-left">
                         <thead>
-                          <tr className="border-b border-white/6 text-[11px] uppercase tracking-wider text-muted-foreground">
+                          <tr className="border-b border-white/6 text-xs uppercase tracking-wider text-muted-foreground">
                             <th className="pb-2 pr-4 font-medium">Category</th>
                             <th className="pb-2 pr-4 text-right font-medium">Target</th>
                             <th className="pb-2 pr-4 text-right font-medium">Done</th>

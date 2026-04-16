@@ -187,9 +187,9 @@ export function CategoryCard({
           value={category.description}
           onChange={(e) => onUpdate(category.id, { description: e.target.value })}
           maxLength={1000}
-          rows={2}
+          rows={3}
           placeholder='Description — e.g. "Q&A about TypeScript patterns"'
-          className="w-full resize-none rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none transition-colors text-foreground placeholder:text-white/25 focus-visible:border-primary/50 focus-visible:bg-white/8 focus-visible:ring-2 focus-visible:ring-primary/20"
+          className="w-full resize-y rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none transition-colors text-foreground placeholder:text-white/25 focus-visible:border-primary/50 focus-visible:bg-white/8 focus-visible:ring-2 focus-visible:ring-primary/20"
         />
 
         {/* Model + Provider — always side by side */}

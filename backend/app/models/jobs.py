@@ -117,6 +117,8 @@ class ExampleResponse(BaseModel):
     tokens: int
     created_at: str
     judge_score: Optional[int] = None
+    category: str = ""
+    model: str = ""
 
 
 # ---- Deduplication ----

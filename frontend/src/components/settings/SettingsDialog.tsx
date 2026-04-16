@@ -263,7 +263,7 @@ export function SettingsDialog({
 
               {activeTab === 'dedup' && (
                 <div className="space-y-3.5">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                     Deduplication
                   </p>
                   <div className="space-y-1.5">
