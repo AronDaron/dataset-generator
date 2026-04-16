@@ -127,11 +127,17 @@ def _inject_conciseness_hint(messages: list[dict], target_tokens: int) -> list[d
 
 
 def _extract_usage(response: dict) -> dict:
-    """Extract prompt_tokens and completion_tokens from OpenRouter response."""
+    """Extract prompt_tokens and completion_tokens from OpenRouter response.
+
+    Subtracts reasoning tokens from completion_tokens so that only real
+    output tokens are counted (for display, cost, and limit checks).
+    """
     usage = response.get("usage") or {}
+    completion = usage.get("completion_tokens", 0)
+    reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
     return {
         "prompt_tokens": usage.get("prompt_tokens", 0),
-        "completion_tokens": usage.get("completion_tokens", 0),
+        "completion_tokens": max(completion - reasoning, 0),
     }
 
 
@@ -206,11 +212,9 @@ async def _generate_and_validate_example(
     If token count exceeds effective_limit: one retry with conciseness hint.
     Returns (parsed_dict, token_count, usage_dict) or None.
     """
-    limit = effective_limit(max_tokens)
-
     for attempt in range(2):
         if attempt == 1:
-            messages = _inject_conciseness_hint(messages, int(limit * 0.8))
+            messages = _inject_conciseness_hint(messages, int(max_tokens * 0.8))
 
         try:
             response = await chat_completion(
@@ -247,9 +251,10 @@ async def _generate_and_validate_example(
                 continue
             return None
 
-        token_count = count_tokens(raw)
-        if token_count <= limit:
-            return parsed, token_count, _extract_usage(response)
+        usage = _extract_usage(response)
+        token_count = usage["completion_tokens"]
+        if token_count <= max_tokens:
+            return parsed, token_count, usage
         # Over limit — retry with conciseness hint
 
     return None
@@ -295,7 +300,7 @@ async def _save_example(
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             str(uuid.uuid4()), job_id, json.dumps(content), fmt,
-            prompt_tokens + completion_tokens,  # backward compat for old 'tokens' column
+            completion_tokens,  # tokens column = output tokens only (excludes prompt)
             now, judge_score,
             prompt_tokens, completion_tokens, model,
             judge_prompt_tokens, judge_completion_tokens,
