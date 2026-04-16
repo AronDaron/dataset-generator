@@ -435,7 +435,7 @@ async def _judge_example(
             messages=messages,
             temperature=0.1,
             max_tokens=1024,  # reasoning models (Qwen3) need space for <think> block
-            max_retries=1,    # fail fast — judge failure is non-fatal (returns None → auto-accept)
+            max_retries=3,    # retry on 429/500 — judge score matters when judge is enabled
             provider=provider,
         )
         usage = _extract_usage(response)
@@ -591,8 +591,19 @@ async def _run_category(
                 await asyncio.sleep(delay)
 
                 if score is None:
-                    accepted = True
-                    progress.judge_stats.accepted += 1
+                    # Judge failed (empty response, parse error) — retry
+                    if attempt < MAX_JUDGE_RETRIES - 1:
+                        logger.warning(
+                            "[job %s] Judge returned no score for '%s' — retry %d/%d",
+                            job_id, topic, attempt + 1, MAX_JUDGE_RETRIES,
+                        )
+                        continue
+                    # All retries exhausted — skip this example
+                    logger.warning(
+                        "[job %s] Judge failed all %d attempts for '%s' — skipping",
+                        job_id, MAX_JUDGE_RETRIES, topic,
+                    )
+                    progress.judge_stats.rejected += 1
                     break
                 if score >= config.judge_threshold:
                     judge_score = score
