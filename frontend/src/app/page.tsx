@@ -230,7 +230,7 @@ export default function GeneratorPage() {
       <header className="sticky top-0 z-10 glass-header">
         <div className="mx-auto flex h-14 max-w-[1800px] items-center justify-between px-8">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="" className="size-7 rounded" />
+            <img src="/logo.png" alt="" className="size-9 rounded" />
             <span className="text-base font-semibold">Dataset Generator</span>
           </div>
           <div className="flex items-center gap-3">

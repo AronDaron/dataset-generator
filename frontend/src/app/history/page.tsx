@@ -409,7 +409,7 @@ export default function HistoryPage() {
             </Link>
             <div className="h-4 w-px bg-white/10" />
             <div className="flex items-center gap-2">
-              <img src="/logo.png" alt="" className="size-7 rounded" />
+              <img src="/logo.png" alt="" className="size-9 rounded" />
               <span className="text-base font-semibold">History</span>
             </div>
           </div>
