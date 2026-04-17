@@ -67,14 +67,14 @@ def _row_to_job_response(row) -> JobResponse:
 
 def _row_to_list_item(row) -> JobListItem:
     config = _parse_config(row)
-    completed = 0
     actual_cost = None
     judge_cost = None
     progress = _parse_progress(row)
     if progress:
-        completed = progress.completed
         actual_cost = progress.actual_cost
         judge_cost = progress.judge_cost
+    # Real count from examples table — reflects deletions (dedup, manual)
+    completed = row["actual_count"]
     category_models = [cat.model or config.model for cat in config.categories]
     # Detect merged jobs by checking for merged_from in config_json
     is_merged = False
@@ -169,8 +169,9 @@ async def list_jobs(
 ) -> list[JobListItem]:
     """List all jobs ordered by creation time descending."""
     async with await db.execute(
-        "SELECT id, status, config_json, progress_json, created_at, updated_at "
-        "FROM jobs ORDER BY created_at DESC"
+        "SELECT j.id, j.status, j.config_json, j.progress_json, j.created_at, j.updated_at, "
+        "(SELECT COUNT(*) FROM examples WHERE examples.job_id = j.id) AS actual_count "
+        "FROM jobs j ORDER BY j.created_at DESC"
     ) as cursor:
         rows = await cursor.fetchall()
     return [_row_to_list_item(row) for row in rows]
@@ -558,3 +559,14 @@ async def delete_example(
         (example_id, job_id),
     )
     await db.commit()
+
+    # Keep JSONL file in sync with DB state
+    jsonl_path = settings.datasets_dir / f"{job_id}.jsonl"
+    async with await db.execute(
+        "SELECT COUNT(*) AS n FROM examples WHERE job_id = ?", (job_id,)
+    ) as cur:
+        remaining = (await cur.fetchone())["n"]
+    if remaining == 0:
+        jsonl_path.unlink(missing_ok=True)
+    else:
+        await export_job(job_id, db)
