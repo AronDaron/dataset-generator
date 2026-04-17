@@ -33,6 +33,14 @@ TOPIC_BATCH_SIZE = 10
 _judge_semaphore = asyncio.Semaphore(3)
 _gen_semaphore = asyncio.Semaphore(10)
 
+# Reasoning models (Qwen3, Gemma 4, Devstral, Mistral Small 2603) can consume
+# a large share of max_tokens on <think> blocks before generating content.
+# We send 2× the user-facing budget to the API so reasoning fits in the
+# overflow half, while the prompt still targets ~70% of the user value.
+# _extract_usage strips reasoning tokens, so the "over budget" check still
+# enforces the user's intent on actual content size.
+API_TOKEN_MULTIPLIER = 2
+
 
 def cancel_job(job_id: str) -> None:
     _cancelled_jobs.add(job_id)
@@ -223,7 +231,7 @@ async def _generate_and_validate_example(
                 model=model,
                 messages=messages,
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_tokens=max_tokens * API_TOKEN_MULTIPLIER,
                 max_retries=1,  # pipeline-level retry handles failures; avoid 3×480s compounding
                 retry_cooldown=retry_cooldown,
                 provider=provider,
@@ -521,8 +529,8 @@ async def _generate_example(
 # ---------------------------------------------------------------------------
 
 # Maximum number of topic attempts per desired example before giving up.
-# E.g. target=10 → try at most 30 topics per category.
-MAX_ATTEMPTS_PER_EXAMPLE = 3
+# E.g. target=10 → try at most 50 topics per category.
+MAX_ATTEMPTS_PER_EXAMPLE = 5
 
 
 async def _run_category(

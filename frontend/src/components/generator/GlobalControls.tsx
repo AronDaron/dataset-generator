@@ -69,7 +69,7 @@ export function GlobalControls({
                 step={128}
                 label="Max tokens"
                 displayValue={maxTokens.toLocaleString('en-US')}
-                hint="Approximate — actual count varies ±15–30% depending on the model"
+                hint="Target for output content. The actual API budget is 2× this value — the overflow absorbs reasoning tokens (<think> blocks) so content still fits. Non-reasoning models naturally stop near this target."
               />
             </div>
 
