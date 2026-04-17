@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, Rocket, AlertCircle, CheckCircle2, XCircle, Upload, Merge } from 'lucide-react'
+import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, AlertCircle, CheckCircle2, XCircle, Upload, Merge } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getJobs, getHfToken, deleteJob, openDatasetsFolder, findDuplicates, mergeDatasets, type JobListItem, type MergeResponse } from '@/lib/api'
@@ -409,7 +409,7 @@ export default function HistoryPage() {
             </Link>
             <div className="h-4 w-px bg-white/10" />
             <div className="flex items-center gap-2">
-              <Rocket className="size-5 text-primary" />
+              <img src="/logo.png" alt="" className="size-7 rounded" />
               <span className="text-base font-semibold">History</span>
             </div>
           </div>

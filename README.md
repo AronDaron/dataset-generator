@@ -1,9 +1,9 @@
 <div align="center">
 
-<!-- TODO: add app logo at docs/assets/logo.png (suggested 200x200) -->
-<img src="docs/assets/logo.png" alt="Dataset Generator" width="160" />
-
-# Dataset Generator
+<h1>
+  <img src="docs/assets/logo.png" alt="" width="56" align="absmiddle" />
+  &nbsp;Dataset Generator
+</h1>
 
 **A no-code desktop app for generating high-quality synthetic datasets to fine-tune LLMs.**
 
@@ -17,11 +17,6 @@ Pick categories, set proportions, click Generate — the app handles the rest: t
 ![Node](https://img.shields.io/badge/node-20%2B-339933?style=flat-square)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-green?style=flat-square)
 ![Status](https://img.shields.io/badge/status-beta-orange?style=flat-square)
-
-<br />
-
-<!-- TODO: hero screenshot of the main generator view — docs/assets/hero.png -->
-<img src="docs/assets/hero.png" alt="Dataset Generator — main view" width="900" />
 
 </div>
 
