@@ -212,6 +212,7 @@ async def _generate_and_validate_example(
     If token count exceeds effective_limit: one retry with conciseness hint.
     Returns (parsed_dict, token_count, usage_dict) or None.
     """
+    provider_tag = provider or "auto"
     for attempt in range(2):
         if attempt == 1:
             messages = _inject_conciseness_hint(messages, int(max_tokens * 0.8))
@@ -227,26 +228,54 @@ async def _generate_and_validate_example(
                 retry_cooldown=retry_cooldown,
                 provider=provider,
             )
-        except Exception:
+        except OpenRouterError as exc:
+            logger.warning(
+                "[gen-fail] API error: model=%s provider=%s attempt=%d status=%s body=%.300s",
+                model, provider_tag, attempt + 1, exc.status_code, str(exc)[:300],
+            )
+            if attempt == 0:
+                continue
+            return None
+        except Exception as exc:
+            logger.warning(
+                "[gen-fail] unexpected exception: model=%s provider=%s attempt=%d err=%r",
+                model, provider_tag, attempt + 1, exc,
+            )
             if attempt == 0:
                 continue
             return None
 
         raw = _extract_content(response)
         if not raw:
+            finish_reason = (response.get("choices") or [{}])[0].get("finish_reason")
+            msg = ((response.get("choices") or [{}])[0].get("message") or {})
+            has_reasoning = bool(msg.get("reasoning"))
+            logger.warning(
+                "[gen-fail] empty content: model=%s provider=%s attempt=%d finish=%s has_reasoning=%s",
+                model, provider_tag, attempt + 1, finish_reason, has_reasoning,
+            )
             if attempt == 0:
                 continue
             return None
 
         try:
             parsed = _parse_json_response(raw)
-        except ValueError:
+        except ValueError as exc:
+            logger.warning(
+                "[gen-fail] JSON parse failed: model=%s provider=%s attempt=%d err=%s raw=%.300s",
+                model, provider_tag, attempt + 1, exc, raw,
+            )
             if attempt == 0:
                 continue
             return None
 
         if not _validate_example_structure(parsed, output_format):
-            logger.warning("Invalid example structure for format=%s, skipping", output_format)
+            logger.warning(
+                "[gen-fail] invalid structure: model=%s provider=%s attempt=%d format=%s parsed_keys=%s preview=%.300s",
+                model, provider_tag, attempt + 1, output_format,
+                list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__,
+                json.dumps(parsed, ensure_ascii=False)[:300],
+            )
             if attempt == 0:
                 continue
             return None
@@ -255,6 +284,10 @@ async def _generate_and_validate_example(
         token_count = usage["completion_tokens"]
         if token_count <= max_tokens:
             return parsed, token_count, usage
+        logger.warning(
+            "[gen-fail] over token budget: model=%s provider=%s attempt=%d tokens=%d max=%d",
+            model, provider_tag, attempt + 1, token_count, max_tokens,
+        )
         # Over limit — retry with conciseness hint
 
     return None
