@@ -20,3 +20,4 @@ tests/*
 test*
 Fixy-todo*
 *.md
+!README.md
