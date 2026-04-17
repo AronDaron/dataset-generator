@@ -1,59 +1,59 @@
 <div align="center">
 
-<!-- TODO: dodaj logo aplikacji w docs/assets/logo.png (sugerowany rozmiar 200x200) -->
+<!-- TODO: add app logo at docs/assets/logo.png (suggested 200x200) -->
 <img src="docs/assets/logo.png" alt="Dataset Generator" width="160" />
 
 # Dataset Generator
 
-**Desktopowa aplikacja no-code do generowania syntetycznych datasetów do fine-tuningu modeli LLM.**
+**A no-code desktop app for generating high-quality synthetic datasets to fine-tune LLMs.**
 
-Wybierz kategorie, ustaw proporcje, kliknij Generate — aplikacja zajmie się resztą: planowaniem tematów, generowaniem przykładów, oceną jakości i eksportem do gotowego pliku JSONL.
+Pick categories, set proportions, click Generate — the app handles the rest: topic planning, example generation, quality scoring, and export to a ready-to-train JSONL file.
 
 <br />
 
-<!-- TODO: zaktualizuj badge'e gdy projekt trafi na GitHub i CI -->
+<!-- TODO: update badges once the project is on GitHub & CI is wired up -->
 ![Stack](https://img.shields.io/badge/stack-Next.js%2016%20%7C%20FastAPI%20%7C%20SQLite-7c3aed?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)
 ![Node](https://img.shields.io/badge/node-20%2B-339933?style=flat-square)
-![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
+![License](https://img.shields.io/badge/license-AGPL--3.0-green?style=flat-square)
 ![Status](https://img.shields.io/badge/status-beta-orange?style=flat-square)
 
 <br />
 
-<!-- TODO: hero screenshot z głównego widoku generatora — docs/assets/hero.png -->
+<!-- TODO: hero screenshot of the main generator view — docs/assets/hero.png -->
 <img src="docs/assets/hero.png" alt="Dataset Generator — main view" width="900" />
 
 </div>
 
 ---
 
-## Spis treści
+## Table of contents
 
-- [O projekcie](#o-projekcie)
+- [About](#about)
 - [Demo](#demo)
-- [Kluczowe funkcje](#kluczowe-funkcje)
-- [Stack technologiczny](#stack-technologiczny)
-- [Wymagania](#wymagania)
-- [Szybki start](#szybki-start)
-- [Konfiguracja](#konfiguracja)
-- [Workflow użycia](#workflow-użycia)
-- [Architektura](#architektura)
-- [Struktura projektu](#struktura-projektu)
-- [Testy](#testy)
+- [Key features](#key-features)
+- [Tech stack](#tech-stack)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Usage workflow](#usage-workflow)
+- [Architecture](#architecture)
+- [Project structure](#project-structure)
+- [Tests](#tests)
 - [Roadmap](#roadmap)
-- [Licencja](#licencja)
+- [License](#license)
 
 ---
 
-## O projekcie
+## About
 
-**Dataset Generator** rozwiązuje konkretny problem: **ręczne tworzenie wysokiej jakości danych do fine-tuningu modeli LLM zajmuje tygodnie**. Aplikacja automatyzuje cały pipeline — od planowania tematów, przez generację multi-turn rozmów, po walidację jakości, deduplikację i upload na HuggingFace Hub.
+**Dataset Generator** solves a concrete problem: **building a high-quality fine-tuning dataset by hand takes weeks**. The app automates the entire pipeline — from topic planning, through multi-turn conversation generation, to quality validation, deduplication, and HuggingFace Hub upload.
 
-Pod maską działa silnik **Plan-then-Execute**: zamiast jednego "wygeneruj 100 przykładów" promptu, aplikacja najpierw rozbija zadanie na unikalne tematy i konspekty, a dopiero potem generuje właściwe przykłady. Efektem są zróżnicowane, spójne dane — bez powtarzających się wzorców typowych dla naiwnej generacji.
+Under the hood it runs a **Plan-then-Execute** engine: instead of a single "generate 100 examples" prompt, the app first decomposes the job into unique topics and outlines, only then generating the actual examples. The result: diverse, coherent data — without the repetitive patterns typical of naive generation.
 
-Cały stack jest lokalny: klucze API zapisywane w SQLite **na urządzeniu użytkownika**, datasety w `~/.datasetgenerator/`. Komunikacja z modelami idzie wyłącznie przez OpenRouter (~300 modeli, jeden klucz, jedno API).
+The whole stack stays local: API keys are stored in SQLite **on the user's device**, datasets land in `~/.datasetgenerator/`. All model traffic goes through OpenRouter (~300 models, one key, one API).
 
-Projekt powstaje jako element portfolio i będzie udostępniony jako open source.
+The project is built as a portfolio piece and will be released as open source.
 
 ---
 
@@ -61,139 +61,139 @@ Projekt powstaje jako element portfolio i będzie udostępniony jako open source
 
 <div align="center">
 
-<!-- TODO: główny GIF demonstrujący pełen workflow (~30s):
-     1. Wybór kategorii i proporcji
-     2. Wybór modelu i formatu
+<!-- TODO: main GIF showcasing the full workflow (~30s):
+     1. Pick categories and proportions
+     2. Choose model and format
      3. Generate → live SSE dashboard
-     4. Quality report + podgląd przykładów
-     Zapisz w docs/assets/demo.gif (max 8 MB) -->
-<img src="docs/assets/demo.gif" alt="Dataset Generator — pełny workflow" width="900" />
+     4. Quality report + example preview
+     Save under docs/assets/demo.gif (max 8 MB) -->
+<img src="docs/assets/demo.gif" alt="Dataset Generator — full workflow" width="900" />
 
 <br />
-<sub>Generacja 50 przykładów z 4 kategorii w formacie ShareGPT z LLM Judge — od kliknięcia Generate do gotowego pliku .jsonl.</sub>
+<sub>Generating 50 examples across 4 categories in ShareGPT format with the LLM Judge enabled — from clicking Generate to a finished .jsonl file.</sub>
 
 </div>
 
 ---
 
-## Kluczowe funkcje
+## Key features
 
-### Pipeline Plan-then-Execute
+### Plan-then-Execute pipeline
 
-Trzy-etapowa generacja zamiast jednego promptu: **tematy → konspekty → przykłady**. Każdy etap można zlecić innemu modelowi (np. tani Llama do tematów, droższy Claude do właściwych przykładów).
+Three-stage generation instead of a single prompt: **topics → outlines → examples**. Each stage can be assigned a different model (e.g. cheap Llama for topics, premium Claude for the actual examples).
 
-<!-- TODO: docs/assets/feature-pipeline.png — screenshot 3 etapów na dashboardzie -->
+<!-- TODO: docs/assets/feature-pipeline.png — screenshot of the 3 stages on the dashboard -->
 <img src="docs/assets/feature-pipeline.png" alt="Pipeline progress" width="700" />
 
-### Kategorie z indywidualną konfiguracją
+### Per-category configuration
 
-Stwórz dowolną liczbę kategorii (Frontend, Python, ML, Security, …) lub użyj 10 gotowych presetów. Dla każdej kategorii ustawiasz: **proporcję** (sumująca się do 100%), **opis tematyczny** (instruuje LLM), opcjonalnie **dedykowany model**.
+Create any number of categories (Frontend, Python, ML, Security, …) or pick from 10 built-in presets. Each category gets: a **proportion** (must sum to 100%), a **topic description** (instructs the LLM), and optionally a **dedicated model**.
 
-<!-- TODO: docs/assets/feature-categories.png — widok listy kategorii z paskiem proporcji -->
-<img src="docs/assets/feature-categories.png" alt="Kategorie z proporcjami" width="700" />
+<!-- TODO: docs/assets/feature-categories.png — view of category list with the proportion bar -->
+<img src="docs/assets/feature-categories.png" alt="Categories with proportions" width="700" />
 
-### LLM Judge — automatyczna ocena jakości
+### LLM Judge — automated quality scoring
 
-Drugi model ocenia każdy wygenerowany przykład w skali 0-100 wg zdefiniowanych kryteriów (relevance, coherence, naturalness, educational value — edytowalne). Przykłady poniżej progu są automatycznie odrzucane, a pipeline kontynuuje aż do osiągnięcia targetu.
+A second model rates every generated example on a 0-100 scale against editable criteria (relevance, coherence, naturalness, educational value). Examples below the threshold are automatically rejected and the pipeline keeps generating until the target count is reached.
 
-- Konfigurowalny próg (0-100)
-- Per-category fallback chain dla modelu sędziego
-- 3 retry przed pominięciem przykładu (`score=None` → skip, nigdy auto-accept)
+- Configurable threshold (0-100)
+- Per-category fallback chain for the judge model
+- 3 retries before skipping an example (`score=None` → skip, never auto-accept)
 
-<!-- TODO: docs/assets/feature-judge.png — screenshot przykładu z badge score -->
-<img src="docs/assets/feature-judge.png" alt="LLM Judge w akcji" width="700" />
+<!-- TODO: docs/assets/feature-judge.png — screenshot of an example with the score badge -->
+<img src="docs/assets/feature-judge.png" alt="LLM Judge in action" width="700" />
 
 ### Real-time dashboard (SSE)
 
-Server-Sent Events przekazują postęp na żywo: globalny pasek, paski per kategoria, statystyki sędziego (Evaluated / Accepted / Rejected), live feed ostatnich 5 przykładów, koszt narastający. Bez WebSocketów, bez pollingu po stronie klienta.
+Server-Sent Events stream live progress: a global bar, per-category bars, judge stats (Evaluated / Accepted / Rejected), a live feed of the last 5 examples, running cost. No WebSockets, no client-side polling.
 
-<!-- TODO: docs/assets/feature-dashboard.gif — krótki gif (~10s) live dashboardu w trakcie generacji -->
+<!-- TODO: docs/assets/feature-dashboard.gif — short clip (~10s) of the live dashboard during generation -->
 <img src="docs/assets/feature-dashboard.gif" alt="Live dashboard" width="700" />
 
-### Trzy formaty eksportu
+### Three export formats
 
-**ShareGPT**, **Alpaca**, **ChatML** — wybierane jednym klikiem. Eksport JSONL zapisany lokalnie, gotowy do podania trenerowi (Axolotl, Unsloth, LLaMA-Factory, custom).
+**ShareGPT**, **Alpaca**, **ChatML** — switchable in one click. JSONL export written locally, ready to feed any trainer (Axolotl, Unsloth, LLaMA-Factory, custom).
 
-### Multi-turn conversations (1-5 tur)
+### Multi-turn conversations (1-5 turns)
 
-Generuj proste pary Q&A albo długie konwersacje wieloturowe. Cała rozmowa generowana w jednym wywołaniu LLM — modele utrzymują spójność kontekstu.
+Generate simple Q&A pairs or long multi-turn conversations. The full conversation is generated in a single LLM call — models keep context coherent throughout.
 
-### Cost tracking — realne koszty
+### Cost tracking — actual costs
 
-Aplikacja pobiera realne `usage` (prompt + completion tokens) z każdej odpowiedzi OpenRouter i mnoży przez aktualne ceny per kategoria. Brak strzelania promiltami — widzisz dokładnie ile kosztował każdy job.
+The app pulls the real `usage` (prompt + completion tokens) from every OpenRouter response and multiplies by the live per-category pricing. No guessing — you see exactly what each job cost.
 
 ### Reasoning models support
 
-Specjalna obsługa modeli reasoningowych (Qwen3, Gemma 4, Devstral) — `max_tokens` mnożone × 2 dla LLM-owego "myślenia", a limit użytkownika egzekwowany na właściwym contencie.
+Special handling for reasoning models (Qwen3, Gemma 4, Devstral) — `max_tokens` is multiplied ×2 on the API side to leave room for the model's "thinking", while the user-facing limit is enforced on the actual content.
 
-### Deduplikacja embedding-based
+### Embedding-based deduplication
 
-Sprawdź który z wygenerowanych przykładów to duplikaty semantyczne (cosine similarity na embeddingach z OpenRouter). Jednym klikiem usuń duplikaty z datasetu.
+Find semantic duplicates among generated examples (cosine similarity over OpenRouter embeddings). Remove duplicates from the dataset in one click.
 
-<!-- TODO: docs/assets/feature-dedup.png — screenshot modala deduplikacji -->
-<img src="docs/assets/feature-dedup.png" alt="Deduplikacja" width="700" />
+<!-- TODO: docs/assets/feature-dedup.png — dedup modal screenshot -->
+<img src="docs/assets/feature-dedup.png" alt="Deduplication" width="700" />
 
 ### Quality Report
 
-Pełny raport jakości datasetu: histogram ocen sędziego, statystyki tokenów per kategoria, generation efficiency, średnia/mediana scoreów. Eksport do JSON/CSV.
+Full quality breakdown for the dataset: judge score histogram, token statistics per category, generation efficiency, mean/median scores. Exportable to JSON/CSV.
 
-<!-- TODO: docs/assets/feature-quality.png — modal Quality Report -->
+<!-- TODO: docs/assets/feature-quality.png — Quality Report modal -->
 <img src="docs/assets/feature-quality.png" alt="Quality Report" width="700" />
 
-### Historia datasetów + podgląd w aplikacji
+### Dataset history + in-app preview
 
-Strona `/history` z listą wszystkich wygenerowanych datasetów, statusami, kosztami. Klik w job → split-view z podglądem każdego przykładu, parsowaniem turn-by-turn, kolorowaniem code blocków (bez ciężkich bibliotek typu Prism).
+A `/history` page with every generated dataset, status, and cost. Click any job → split-view with a preview of every example, turn-by-turn parsing, and code-block highlighting (no heavy deps like Prism).
 
-<!-- TODO: docs/assets/feature-history.png — strona /history z listą jobów -->
-<img src="docs/assets/feature-history.png" alt="Historia datasetów" width="700" />
+<!-- TODO: docs/assets/feature-history.png — /history page with the job list -->
+<img src="docs/assets/feature-history.png" alt="Dataset history" width="700" />
 
-### Merge datasetów
+### Dataset merging
 
-Połącz kilka jobów w jeden dataset (badge **Merged**). Wszystkie funkcje (podgląd, raport, dedup, upload HF) działają tak samo jak na zwykłych jobach.
+Combine multiple jobs into a single dataset (badge **Merged**). All features (preview, report, dedup, HF upload) work the same on merged jobs.
 
-### Upload na HuggingFace Hub
+### HuggingFace Hub upload
 
-Po zakończeniu kliknij Upload → konfiguracja repo (nazwa, prywatne/publiczne) → JSONL trafia bezpośrednio na Hugging Face. Token HF zapisywany lokalnie w SQLite.
+When generation finishes, click Upload → configure repo (name, private/public) → JSONL goes straight to Hugging Face. The HF token is stored locally in SQLite.
 
-<!-- TODO: docs/assets/feature-hf-upload.gif — gif uploadu na HF (~5s) -->
-<img src="docs/assets/feature-hf-upload.gif" alt="Upload na HuggingFace" width="700" />
+<!-- TODO: docs/assets/feature-hf-upload.gif — HF upload clip (~5s) -->
+<img src="docs/assets/feature-hf-upload.gif" alt="HuggingFace upload" width="700" />
 
 ---
 
-## Stack technologiczny
+## Tech stack
 
-| Warstwa | Technologie |
+| Layer | Technologies |
 |---|---|
 | **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS v4, Shadcn UI, [@base-ui/react](https://base-ui.com/), Lucide icons |
 | **Backend** | FastAPI, Python 3.10+, Pydantic v2, aiosqlite, httpx, tiktoken, numpy, huggingface_hub |
-| **Baza danych** | SQLite (lokalna, w katalogu danych użytkownika) |
-| **Real-time** | Server-Sent Events (SSE) — bez WebSocketów |
-| **LLM API** | OpenRouter (zunifikowany dostęp do ~300 modeli) |
+| **Database** | SQLite (local, in user's data directory) |
+| **Real-time** | Server-Sent Events (SSE) — no WebSockets |
+| **LLM API** | OpenRouter (unified access to ~300 models) |
 | **Embeddings** | OpenRouter Embeddings API + numpy cosine similarity |
-| **Desktop runtime** *(planowane)* | Pywebview + PyInstaller `--onedir` |
+| **Desktop runtime** *(planned)* | Pywebview + PyInstaller `--onedir` |
 
-### Decyzje architektoniczne warte odnotowania
+### Architectural decisions worth noting
 
-- **Pywebview zamiast Electron** — jeden runtime (Python), bez bundlowania Node.js, finalna aplikacja **kilkukrotnie mniejsza**.
-- **SSE zamiast WebSocketu** — wystarczające dla jednokierunkowego streamu progresu, prostsze, bez dodatkowych zależności.
-- **tiktoken (cl100k_base) jako aproksymacja dla wszystkich modeli** — z 10% marginesem bezpieczeństwa, nie wymaga pobierania per-model tokenizatora.
-- **Numpy cosine zamiast scikit-learn TF-IDF** — szybsze, lżejsze, embeddingi i tak są lepsze semantycznie.
-- **Brak ORM** — czysty `aiosqlite` z parametrized queries; szybciej, mniej magii.
-
----
-
-## Wymagania
-
-- **Python 3.10+** (z `venv`)
-- **Node.js 20+** (z `npm`)
-- **Klucz API OpenRouter** ([uzyskaj tutaj](https://openrouter.ai/keys))
-- *(opcjonalnie)* **Token HuggingFace** dla uploadu datasetów
+- **Pywebview over Electron** — single runtime (Python), no Node.js to bundle, the final app ships **several times smaller**.
+- **SSE over WebSocket** — sufficient for a one-way progress stream, simpler, no extra dependencies.
+- **tiktoken (cl100k_base) as a universal approximation** — with a 10% safety margin, no need to fetch a per-model tokenizer.
+- **Numpy cosine instead of scikit-learn TF-IDF** — faster, lighter, and embeddings beat lexical similarity anyway.
+- **No ORM** — plain `aiosqlite` with parameterized queries; faster, less magic.
 
 ---
 
-## Szybki start
+## Requirements
 
-### 1. Klonowanie repozytorium
+- **Python 3.10+** (with `venv`)
+- **Node.js 20+** (with `npm`)
+- **OpenRouter API key** ([get one here](https://openrouter.ai/keys))
+- *(optional)* **HuggingFace token** for dataset uploads
+
+---
+
+## Quick start
+
+### 1. Clone the repo
 
 ```bash
 git clone https://github.com/<your-username>/dataset-generator.git
@@ -209,11 +209,11 @@ python3 -m venv venv
 ./venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-Backend wystartuje na `http://localhost:8000`. Swagger UI dostępne na `http://localhost:8000/docs`.
+The backend starts on `http://localhost:8000`. Swagger UI is available at `http://localhost:8000/docs`.
 
 ### 3. Frontend
 
-W nowym terminalu:
+In a new terminal:
 
 ```bash
 cd frontend
@@ -221,73 +221,73 @@ npm install
 npm run dev
 ```
 
-Frontend wystartuje na `http://localhost:3000`. Otwórz w przeglądarce.
+The frontend starts on `http://localhost:3000`. Open it in your browser.
 
-### 4. Pierwszy dataset
+### 4. First dataset
 
-1. Kliknij **Settings** → wprowadź klucz OpenRouter API → Save
-2. Wybierz model w sekcji **Generation settings**
-3. Wybierz preset kategorii (np. *Python*) lub stwórz własną
-4. Ustaw liczbę przykładów (suwak) i format (ShareGPT/Alpaca/ChatML)
-5. Kliknij **Generate**
-6. Po zakończeniu — **Open folder** lub **View** dla podglądu w aplikacji
+1. Click **Settings** → enter your OpenRouter API key → Save
+2. Pick a model in the **Generation settings** section
+3. Choose a preset category (e.g. *Python*) or create your own
+4. Set the example count (slider) and format (ShareGPT/Alpaca/ChatML)
+5. Click **Generate**
+6. When it finishes — **Open folder** or **View** to preview in-app
 
-<!-- TODO: docs/assets/quickstart.gif — gif od pustego ekranu do pierwszego datasetu (~20s) -->
-<img src="docs/assets/quickstart.gif" alt="Pierwszy dataset w 20 sekund" width="700" />
+<!-- TODO: docs/assets/quickstart.gif — clip from blank screen to first dataset (~20s) -->
+<img src="docs/assets/quickstart.gif" alt="First dataset in 20 seconds" width="700" />
 
 ---
 
-## Konfiguracja
+## Configuration
 
-Wszystkie ustawienia zarządzane są z poziomu UI (modal **Settings**, ikona koła zębatego).
+All settings are managed from the UI (the **Settings** modal, gear icon).
 
-### Sekcje ustawień
+### Settings sections
 
-- **API Keys** — klucz OpenRouter, token HuggingFace; każdy z disclaimerem o lokalnym przechowywaniu
-- **Generation** — domyślny model, delay między requestami, retry count, retry cooldown
-- **Judge** — włącz/wyłącz LLM Judge, wybór modelu sędziego, próg akceptacji, edytowalne kryteria oceny
-- **Dedup** — model embedding (default: `openai/text-embedding-3-small`)
+- **API Keys** — OpenRouter key, HuggingFace token; each with a disclaimer about local storage
+- **Generation** — default model, request delay, retry count, retry cooldown
+- **Judge** — enable/disable LLM Judge, judge model, acceptance threshold, editable evaluation criteria
+- **Dedup** — embedding model (default: `openai/text-embedding-3-small`)
 
-### Lokalizacja danych użytkownika
+### User data location
 
-| System | Ścieżka |
+| OS | Path |
 |---|---|
 | Linux/macOS | `~/.datasetgenerator/` |
 | Windows | `%APPDATA%/DatasetGenerator/` |
 
-Struktura:
+Layout:
 
 ```
 ~/.datasetgenerator/
-├── database.sqlite       # ustawienia, klucze, joby, examples
+├── database.sqlite       # settings, keys, jobs, examples
 └── datasets/
-    ├── <job_id>.jsonl    # wyeksportowane datasety
+    ├── <job_id>.jsonl    # exported datasets
     └── ...
 ```
 
 ---
 
-## Workflow użycia
+## Usage workflow
 
 ```mermaid
 flowchart LR
-    A[Wybór kategorii<br/>i proporcji] --> B[Wybór modelu<br/>i formatu]
+    A[Pick categories<br/>and proportions] --> B[Choose model<br/>and format]
     B --> C[Generate]
-    C --> D{Pipeline<br/>Plan-then-Execute}
-    D --> D1[Stage 1:<br/>tematy]
-    D1 --> D2[Stage 2:<br/>konspekty]
-    D2 --> D3[Stage 3:<br/>przykłady]
-    D3 --> E{LLM Judge<br/>włączony?}
-    E -->|tak| F[Ocena 0-100]
-    E -->|nie| G[Auto-eksport JSONL]
-    F -->|score >= próg| G
-    F -->|score < próg| D3
-    G --> H[Quality Report<br/>Dedup<br/>Upload HF]
+    C --> D{Plan-then-Execute<br/>pipeline}
+    D --> D1[Stage 1:<br/>topics]
+    D1 --> D2[Stage 2:<br/>outlines]
+    D2 --> D3[Stage 3:<br/>examples]
+    D3 --> E{LLM Judge<br/>enabled?}
+    E -->|yes| F[Score 0-100]
+    E -->|no| G[Auto-export JSONL]
+    F -->|score >= threshold| G
+    F -->|score < threshold| D3
+    G --> H[Quality Report<br/>Dedup<br/>HF Upload]
 ```
 
 ---
 
-## Architektura
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -323,15 +323,15 @@ flowchart LR
 
 ---
 
-## Struktura projektu
+## Project structure
 
 ```
 pipeline/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                  # FastAPI entrypoint, lifespan, CORS
-│   │   ├── config.py                # ścieżki, CORS origins
-│   │   ├── utils.py                 # helpery (api key fetch, ISO timestamps)
+│   │   ├── config.py                # paths, CORS origins
+│   │   ├── utils.py                 # helpers (api key fetch, ISO timestamps)
 │   │   ├── database/
 │   │   │   ├── connection.py        # aiosqlite singleton
 │   │   │   └── migrations.py        # versioned migrations (v1-v4)
@@ -344,9 +344,9 @@ pipeline/
 │   │   │   ├── jobs.py              # CRUD + SSE + export + dedup + stats
 │   │   │   └── datasets.py          # open-folder
 │   │   └── services/
-│   │       ├── job_runner.py        # silnik pipeline (Plan-then-Execute)
-│   │       ├── prompt_builder.py    # 3 typy promptów × 3 formaty
-│   │       ├── openrouter_client.py # async httpx z retry
+│   │       ├── job_runner.py        # pipeline engine (Plan-then-Execute)
+│   │       ├── prompt_builder.py    # 3 prompt types × 3 formats
+│   │       ├── openrouter_client.py # async httpx with retry
 │   │       ├── token_counter.py     # tiktoken + safety margin
 │   │       ├── export_service.py    # JSONL export
 │   │       ├── dedup_service.py     # cosine similarity duplicates
@@ -358,67 +358,71 @@ pipeline/
 │   │   ├── app/
 │   │   │   ├── layout.tsx           # root layout (Plus Jakarta Sans)
 │   │   │   ├── page.tsx             # generator
-│   │   │   ├── history/page.tsx     # lista datasetów
-│   │   │   └── jobs/[id]/page.tsx   # podgląd datasetu (split view)
+│   │   │   ├── history/page.tsx     # dataset list
+│   │   │   └── jobs/[id]/page.tsx   # dataset preview (split view)
 │   │   ├── components/
 │   │   │   ├── generator/           # CategoryList, GlobalControls, ...
-│   │   │   ├── settings/            # SettingsDialog + sekcje
+│   │   │   ├── settings/            # SettingsDialog + sections
 │   │   │   ├── jobs/                # DeduplicateModal, QualityReportModal
 │   │   │   ├── history/             # UploadHfModal
 │   │   │   └── ui/                  # button, card, slider, select, ...
 │   │   └── lib/
-│   │       ├── api.ts               # fetch wrappers + typy
-│   │       ├── proportions.ts       # logika proporcji kategorii
-│   │       ├── example-utils.ts     # parser turn-by-turn
-│   │       └── provider-icons.ts    # mapa modelId → ikona providera
+│   │       ├── api.ts               # fetch wrappers + types
+│   │       ├── proportions.ts       # category proportion logic
+│   │       ├── example-utils.ts     # turn-by-turn parser
+│   │       └── provider-icons.ts    # modelId → provider icon map
 │   └── package.json
 ├── tests/
-│   ├── unit/                        # 7 plików: dedup, embedding, hf, ...
-│   ├── integration/                 # 9 plików: jobs, settings, export, ...
-│   └── e2e/                         # 3 pliki: full pipeline scenarios
-├── plan_projektu.md                 # pełny plan/architektura
+│   ├── unit/                        # 7 files: dedup, embedding, hf, ...
+│   ├── integration/                 # 9 files: jobs, settings, export, ...
+│   └── e2e/                         # 3 files: full pipeline scenarios
+├── plan_projektu.md                 # full project plan (PL)
 └── README.md
 ```
 
 ---
 
-## Testy
+## Tests
 
-Suite składa się z **270+ testów** (unit + integration + e2e).
+The suite ships **270+ tests** (unit + integration + e2e).
 
 ```bash
 cd backend
 ./venv/bin/pip install -r ../tests/requirements-test.txt
-./venv/bin/pytest ../tests/                        # wszystkie
-./venv/bin/pytest ../tests/unit/                   # tylko unit
+./venv/bin/pytest ../tests/                        # all
+./venv/bin/pytest ../tests/unit/                   # unit only
 ./venv/bin/pytest ../tests/integration/ -v         # integration verbose
-./venv/bin/pytest ../tests/e2e/ -k "judge"         # konkretny scenariusz
+./venv/bin/pytest ../tests/e2e/ -k "judge"         # specific scenario
 ```
 
 ---
 
 ## Roadmap
 
-- [x] **Faza 0-5** — pełny pipeline generacji + LLM Judge + SSE
-- [x] **Historia + podgląd datasetów**
+- [x] **Phases 0-5** — full generation pipeline + LLM Judge + SSE
+- [x] **History + dataset preview**
 - [x] **HuggingFace Hub upload**
-- [x] **Deduplikacja embedding-based**
+- [x] **Embedding-based deduplication**
 - [x] **Quality Report**
-- [x] **Merge datasetów**
+- [x] **Dataset merging**
 - [x] **Cost tracking (real usage)**
-- [ ] **Faza 6** — pakiet desktopowy (Pywebview + PyInstaller `--onedir`)
-- [ ] **Faza 7** — auto-update + sprawdzanie nowych wersji
-- [ ] **Faza 8** — szablony datasetów (community templates)
-- [ ] **Lokalne modele** — wsparcie Ollama / llama.cpp jako alternatywa dla OpenRouter
+- [ ] **Phase 6** — desktop bundle (Pywebview + PyInstaller `--onedir`)
+- [ ] **Phase 7** — auto-update + new-version checks
+- [ ] **Phase 8** — dataset templates (community-contributed)
+- [ ] **Local models** — Ollama / llama.cpp support as an OpenRouter alternative
 
 ---
 
-## Licencja
+## License
 
-MIT — zobacz [LICENSE](LICENSE).
+**GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
+
+The AGPL-3.0 is a strong copyleft license: you are free to use, modify, and redistribute Dataset Generator, but **any derivative work — including SaaS / network-deployed versions — must release its full source code under the same license**. This is intentional, to keep the project and any downstream variants open source.
+
+If you need a different licensing arrangement (e.g. for proprietary commercial use), please open an issue to discuss.
 
 ---
 
 <div align="center">
-<sub>Zbudowane z React, FastAPI i sporą dawką uporu.</sub>
+<sub>Built with React, FastAPI, and a healthy dose of stubbornness.</sub>
 </div>
