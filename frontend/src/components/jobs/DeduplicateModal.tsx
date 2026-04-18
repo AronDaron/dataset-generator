@@ -34,16 +34,16 @@ interface DeduplicateModalProps {
 // ---- Helpers ----
 
 function scoreColor(score: number | null): string {
-  if (score == null) return 'text-muted-foreground'
-  if (score >= 80) return 'text-emerald-400'
-  if (score >= 50) return 'text-amber-400'
-  return 'text-red-400'
+  if (score == null) return 'text-text-3'
+  if (score >= 80) return 'text-ok'
+  if (score >= 50) return 'text-warn'
+  return 'text-destructive'
 }
 
 function similarityColor(sim: number): string {
-  if (sim >= 0.95) return 'bg-red-500/20 text-red-400'
-  if (sim >= 0.9) return 'bg-amber-500/20 text-amber-400'
-  return 'bg-violet-500/20 text-violet-300'
+  if (sim >= 0.95) return 'bg-destructive/15 text-destructive'
+  if (sim >= 0.9) return 'bg-warn/15 text-warn'
+  return 'bg-accent-soft text-primary'
 }
 
 // ---- TurnBlock for expanded view ----
@@ -52,17 +52,17 @@ function TurnBlock({ turn }: { turn: Turn }) {
   const label = normaliseRole(turn.role)
   const chipClass =
     label === 'USER'
-      ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+      ? 'bg-info/12 text-info'
       : label === 'ASSISTANT'
-        ? 'border-violet-500/30 bg-violet-500/10 text-violet-300'
-        : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+        ? 'bg-accent-soft text-primary'
+        : 'bg-muted text-text-2'
 
   return (
-    <div className="rounded-lg border border-white/8 bg-white/3 p-3">
+    <div className="rounded-lg border border-border bg-bg-0 p-3">
       <div className="mb-2">
         <span
           className={cn(
-            'inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-widest uppercase',
+            'inline-flex items-center rounded-md px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-widest',
             chipClass,
           )}
         >
@@ -99,12 +99,12 @@ function PairCard({
       : null
 
   return (
-    <div className="rounded-xl border border-white/8 bg-white/[0.02] p-4">
+    <div className="rounded-xl border border-border bg-bg-0 p-4">
       {/* Header */}
       <div className="mb-3 flex items-center justify-between">
         <span
           className={cn(
-            'rounded-full px-2.5 py-0.5 text-xs font-semibold',
+            'rounded-full px-2.5 py-0.5 font-mono text-xs font-semibold',
             similarityColor(pair.similarity),
           )}
         >
@@ -113,7 +113,7 @@ function PairCard({
         <Button
           variant="ghost"
           size="xs"
-          className="gap-1 text-muted-foreground"
+          className="gap-1 text-text-3"
           onClick={onToggle}
         >
           {expanded ? (
@@ -146,7 +146,7 @@ function PairCard({
       />
 
       <div className="my-2 flex items-center justify-center">
-        <span className="text-xs text-muted-foreground/50">vs</span>
+        <span className="font-serif text-sm italic text-text-3">vs</span>
       </div>
 
       {/* Example B */}
@@ -199,23 +199,23 @@ function ExampleCard({
   return (
     <div
       className={cn(
-        'rounded-lg border border-white/6 bg-white/[0.02] p-3',
-        isLowerScored && 'ring-1 ring-amber-500/30',
+        'rounded-lg border border-border bg-card p-3',
+        isLowerScored && 'ring-1 ring-warn/40',
       )}
     >
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-xs font-bold">
+          <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-xs font-bold text-text-1">
             {label}
           </span>
-          <span className="text-xs text-muted-foreground">{tokens} tok</span>
+          <span className="font-mono text-xs text-text-3">{tokens} tok</span>
           {judgeScore != null && (
-            <span className={cn('text-xs font-medium', scoreColor(judgeScore))}>
+            <span className={cn('font-mono text-xs font-medium', scoreColor(judgeScore))}>
               Judge: {judgeScore}
             </span>
           )}
           {isLowerScored && (
-            <span className="text-xs text-amber-400/70">lower score</span>
+            <span className="text-xs text-warn">lower score</span>
           )}
         </div>
         <Button
@@ -235,11 +235,11 @@ function ExampleCard({
           {turns.length > 0 ? (
             turns.map((turn, i) => <TurnBlock key={i} turn={turn} />)
           ) : (
-            <p className="text-xs italic text-muted-foreground">Unable to parse content.</p>
+            <p className="text-xs italic text-text-3">Unable to parse content.</p>
           )}
         </div>
       ) : (
-        <p className="text-xs leading-relaxed text-muted-foreground">
+        <p className="text-xs leading-relaxed text-text-2">
           &ldquo;{preview}&rdquo;
         </p>
       )}
@@ -362,21 +362,16 @@ export function DeduplicateModal({
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && handleClose()}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" />
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/55 backdrop-blur-[4px]" />
         <Dialog.Popup
           className={cn(
             'fixed left-1/2 top-1/2 z-50 w-full max-w-2xl -translate-x-1/2 -translate-y-1/2',
-            'rounded-2xl shadow-2xl',
-            'ring-1 ring-white/10',
+            'rounded-xl border border-border bg-card shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7),0_8px_20px_rgba(0,0,0,0.35)]',
           )}
-          style={{
-            background: 'oklch(0.13 0.026 232 / 0.97)',
-            backdropFilter: 'blur(20px)',
-          }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/8 px-6 py-4">
-            <Dialog.Title className="text-base font-semibold">
+          <div className="flex items-center justify-between border-b border-border px-6 py-4">
+            <Dialog.Title className="font-serif text-xl italic tracking-[-0.01em] text-text-0">
               {state === 'results' && pairs.length > 0
                 ? `Found ${pairs.length} duplicate pair${pairs.length !== 1 ? 's' : ''}`
                 : 'Duplicate Detection'}
@@ -397,8 +392,8 @@ export function DeduplicateModal({
               <div className="space-y-5">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium">Similarity Threshold</label>
-                    <span className="rounded bg-white/10 px-2 py-0.5 font-mono text-xs">
+                    <label className="text-[11px] font-medium uppercase tracking-widest text-text-3">Similarity Threshold</label>
+                    <span className="rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-xs text-text-1">
                       {threshold.toFixed(2)}
                     </span>
                   </div>
@@ -409,15 +404,15 @@ export function DeduplicateModal({
                     step={0.01}
                     value={threshold}
                     onChange={(e) => setThreshold(parseFloat(e.target.value))}
-                    className="w-full accent-violet-500"
+                    className="w-full accent-[oklch(0.72_0.17_145)]"
                   />
-                  <div className="flex justify-between text-xs text-muted-foreground">
+                  <div className="flex justify-between text-xs text-text-3">
                     <span>0.50 - Loose</span>
-                    <span className="font-medium text-foreground/70">{thresholdLabel}</span>
+                    <span className="font-medium text-text-1">{thresholdLabel}</span>
                     <span>1.00 - Identical</span>
                   </div>
                 </div>
-                <p className="text-xs leading-relaxed text-muted-foreground">
+                <p className="text-xs leading-relaxed text-text-3">
                   Compares all examples using embedding cosine similarity. Higher threshold
                   means only near-identical pairs are flagged.
                 </p>
@@ -427,18 +422,18 @@ export function DeduplicateModal({
             {/* Scanning state */}
             {state === 'scanning' && (
               <div className="flex flex-col items-center gap-3 py-8">
-                <Loader2 className="size-8 animate-spin text-violet-400" />
-                <p className="text-sm text-muted-foreground">Analyzing examples...</p>
+                <Loader2 className="size-8 animate-spin text-primary" />
+                <p className="text-sm text-text-3">Analyzing examples...</p>
               </div>
             )}
 
             {/* Results state — no duplicates */}
             {state === 'results' && pairs.length === 0 && (
               <div className="flex flex-col items-center gap-3 py-8">
-                <CheckCircle2 className="size-10 text-emerald-400" />
+                <CheckCircle2 className="size-10 text-ok" />
                 <div className="space-y-1 text-center">
-                  <p className="text-sm font-medium">No duplicates found</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm font-medium text-text-0">No duplicates found</p>
+                  <p className="text-xs text-text-3">
                     No example pairs above {Math.round(threshold * 100)}% similarity
                     in {totalExamples} examples.
                   </p>
@@ -449,7 +444,7 @@ export function DeduplicateModal({
             {/* Results state — pairs found */}
             {state === 'results' && pairs.length > 0 && (
               <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-text-3">
                   Threshold: {Math.round(threshold * 100)}% &middot;{' '}
                   {totalExamples} total examples
                 </p>
@@ -471,17 +466,17 @@ export function DeduplicateModal({
             {/* Error state */}
             {state === 'error' && (
               <div className="flex flex-col items-center gap-3 py-8">
-                <AlertCircle className="size-10 text-red-400" />
+                <AlertCircle className="size-10 text-destructive" />
                 <div className="space-y-1 text-center">
-                  <p className="text-sm font-medium">Scan failed</p>
-                  <p className="text-xs text-muted-foreground">{errorMessage}</p>
+                  <p className="text-sm font-medium text-text-0">Scan failed</p>
+                  <p className="text-xs text-text-3">{errorMessage}</p>
                 </div>
               </div>
             )}
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between border-t border-white/8 px-6 py-4">
+          <div className="flex items-center justify-between border-t border-border px-6 py-4">
             <div>
               {state === 'results' && pairs.length > 0 && hasJudgeScores && (
                 <Button

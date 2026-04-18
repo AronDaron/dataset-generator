@@ -57,16 +57,16 @@ export function SelectField({
       <Select.Trigger
         className={cn(
           'group inline-flex w-full items-center justify-between gap-2 rounded-lg',
-          'border border-white/10 bg-white/5 px-3 py-1.5 text-sm',
-          'transition-all duration-150',
-          'outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/20',
-          'hover:border-white/16 hover:bg-white/7',
-          'aria-expanded:border-primary/35 aria-expanded:bg-white/7',
+          'border border-border bg-background px-3 py-1.5 text-sm text-foreground',
+          'transition-colors duration-150',
+          'outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40',
+          'hover:bg-muted hover:border-line-strong',
+          'aria-expanded:bg-muted aria-expanded:border-line-strong',
           'disabled:pointer-events-none disabled:opacity-40',
           className,
         )}
       >
-        <span className={cn('flex min-w-0 items-center gap-1.5', !value && 'text-muted-foreground/60')}>
+        <span className={cn('flex min-w-0 items-center gap-1.5', !value && 'text-text-3')}>
           {selectedIcon && !isLoading && (
             <img src={selectedIcon} alt="" className="size-3.5 shrink-0 object-contain opacity-90" />
           )}
@@ -74,7 +74,7 @@ export function SelectField({
         </span>
         <ChevronDown
           className={cn(
-            'size-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-200',
+            'size-3.5 shrink-0 text-text-3 transition-transform duration-200',
             'group-aria-expanded:rotate-180',
           )}
         />
@@ -85,9 +85,8 @@ export function SelectField({
           <Select.Popup
             className={cn(
               'w-[var(--anchor-width)] min-w-[180px] overflow-hidden rounded-xl',
-              'border border-white/10',
-              'bg-[oklch(0.20_0.024_250)] backdrop-blur-xl',
-              'shadow-[0_12px_40px_oklch(0_0_0/0.55),0_2px_8px_oklch(0_0_0/0.35),inset_0_1px_0_oklch(1_0_0/0.08)]',
+              'border border-border bg-popover text-popover-foreground',
+              'shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7),0_8px_20px_rgba(0,0,0,0.35)]',
               'outline-none',
             )}
           >
@@ -96,7 +95,7 @@ export function SelectField({
                 ? grouped.map(({ groupName, items }) => (
                     <Select.Group key={groupName}>
                       {groupName && (
-                        <Select.GroupLabel className="px-2 pt-2 pb-1 text-xs font-semibold uppercase tracking-widest text-muted-foreground/45">
+                        <Select.GroupLabel className="px-2 pt-2 pb-1 text-xs font-semibold uppercase tracking-widest text-text-3">
                           {groupName}
                         </Select.GroupLabel>
                       )}
@@ -107,7 +106,7 @@ export function SelectField({
                   ))
                 : options.map((opt) => <SelectItem key={opt.value} opt={opt} />)}
               {options.length === 0 && !isLoading && (
-                <div className="px-2 py-5 text-center text-xs text-muted-foreground/50">
+                <div className="px-2 py-5 text-center text-xs text-text-3">
                   No options
                 </div>
               )}
@@ -127,7 +126,7 @@ function SelectItem({ opt }: { opt: SelectOption }) {
       className={cn(
         'flex cursor-default select-none items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-none',
         'transition-colors duration-100',
-        'data-[highlighted]:bg-white/7 data-[highlighted]:text-foreground',
+        'data-[highlighted]:bg-muted data-[highlighted]:text-foreground',
         'data-[selected]:text-primary',
       )}
     >

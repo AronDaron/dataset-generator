@@ -30,10 +30,10 @@ interface FormatSelectorProps {
 export function FormatSelector({ value, onChange }: FormatSelectorProps) {
   return (
     <div className="space-y-2">
-      <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+      <p className="text-[11px] font-semibold uppercase tracking-widest text-text-3">
         Export format
       </p>
-      <div className="grid grid-cols-3 gap-1 rounded-xl border border-white/7 bg-black/25 p-1">
+      <div className="grid grid-cols-3 gap-1 rounded-xl border border-border bg-bg-0 p-1">
         {FORMATS.map((f) => {
           const active = value === f.value
           return (
@@ -41,20 +41,17 @@ export function FormatSelector({ value, onChange }: FormatSelectorProps) {
               key={f.value}
               onClick={() => onChange(f.value)}
               className={cn(
-                'flex flex-col gap-0.5 rounded-lg px-3 py-2.5 text-left transition-all duration-150 outline-none',
-                'focus-visible:ring-2 focus-visible:ring-primary/50',
+                'flex flex-col gap-0.5 rounded-lg px-3 py-2.5 text-left transition-colors duration-150 outline-none',
+                'focus-visible:ring-2 focus-visible:ring-ring/40',
                 active
-                  ? [
-                      'bg-primary/14 ring-1 ring-primary/30',
-                      'shadow-[0_0_16px_oklch(0.65_0.22_292/0.18),inset_0_1px_0_oklch(1_0_0/0.07)]',
-                    ]
-                  : 'hover:bg-white/4 text-foreground/50 hover:text-foreground/75',
+                  ? 'bg-accent-soft'
+                  : 'hover:bg-muted',
               )}
             >
               <span
                 className={cn(
                   'text-sm font-semibold tracking-tight transition-colors',
-                  active ? 'text-primary' : 'text-foreground/65',
+                  active ? 'text-primary' : 'text-text-2',
                 )}
               >
                 {f.label}
@@ -62,7 +59,7 @@ export function FormatSelector({ value, onChange }: FormatSelectorProps) {
               <span
                 className={cn(
                   'text-xs leading-tight transition-colors',
-                  active ? 'text-primary/55' : 'text-muted-foreground',
+                  active ? 'text-primary/70' : 'text-text-3',
                 )}
               >
                 {f.description}

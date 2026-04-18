@@ -32,11 +32,14 @@ interface ConfigSectionProps {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+    <p className="text-[11px] font-semibold uppercase tracking-widest text-text-3">
       {children}
     </p>
   )
 }
+
+const FIELD_LABEL = "text-[11px] font-medium uppercase tracking-widest text-text-3"
+const INPUT_CLS = "w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-text-0 outline-none placeholder:text-text-3 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
 
 export function ConfigSection({
   section = 'all',
@@ -134,9 +137,9 @@ export function ConfigSection({
 
         {/* Model */}
         <div className="space-y-1.5">
-          <label className="text-sm font-medium">Model</label>
+          <label className={FIELD_LABEL}>Model</label>
           {!hasApiKey ? (
-            <p className="text-sm text-muted-foreground">Enter your API key to load available models.</p>
+            <p className="text-sm text-text-3">Enter your API key to load available models.</p>
           ) : (
             <>
               <SelectField
@@ -154,9 +157,9 @@ export function ConfigSection({
         {/* Delay + Retry — side by side */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">
+            <label className={FIELD_LABEL}>
               Delay{' '}
-              <span className="text-xs font-normal text-muted-foreground">sec</span>
+              <span className="text-[10px] font-normal text-text-4">sec</span>
             </label>
             <input
               type="number"
@@ -164,13 +167,13 @@ export function ConfigSection({
               max={60}
               value={delay}
               onChange={(e) => onDelayChange(Math.max(0, Math.min(60, Number(e.target.value))))}
-              className="w-full rounded-lg border border-border bg-white/4 px-3 py-1.5 text-sm outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/20"
+              className={INPUT_CLS}
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">
+            <label className={FIELD_LABEL}>
               Retries{' '}
-              <span className="text-xs font-normal text-muted-foreground">on error</span>
+              <span className="text-[10px] font-normal text-text-4">on error</span>
             </label>
             <input
               type="number"
@@ -178,7 +181,7 @@ export function ConfigSection({
               max={10}
               value={retryCount}
               onChange={(e) => onRetryChange(Math.max(1, Math.min(10, Number(e.target.value))))}
-              className="w-full rounded-lg border border-border bg-white/4 px-3 py-1.5 text-sm outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/20"
+              className={INPUT_CLS}
             />
           </div>
         </div>
@@ -186,7 +189,7 @@ export function ConfigSection({
       )}
 
       {/* Divider */}
-      {showGeneration && showJudge && <div className="border-t border-border/50" />}
+      {showGeneration && showJudge && <div className="border-t border-border" />}
 
       {/* ── LLM Judge ───────────────────────────────── */}
       {showJudge && (
@@ -195,7 +198,7 @@ export function ConfigSection({
         <div className="flex items-center justify-between">
           <div>
             <SectionLabel>LLM Judge</SectionLabel>
-            <p className="mt-0.5 text-xs text-muted-foreground">Additional API cost applies</p>
+            <p className="mt-0.5 text-xs text-text-3">Additional API cost applies</p>
           </div>
           <button
             role="switch"
@@ -204,12 +207,12 @@ export function ConfigSection({
             className={cn(
               'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
               judgeEnabled ? 'bg-primary' : 'bg-muted',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
             )}
           >
             <span
               className={cn(
-                'pointer-events-none block h-4 w-4 rounded-full bg-white shadow transition-transform',
+                'pointer-events-none block size-4 rounded-full bg-text-0 shadow transition-transform',
                 judgeEnabled ? 'translate-x-4' : 'translate-x-0',
               )}
             />
@@ -221,9 +224,9 @@ export function ConfigSection({
             {/* Judge model + provider — side by side */}
             <div className="grid grid-cols-2 gap-3">
               <div className="min-w-0 space-y-1.5">
-                <label className="text-sm font-medium">Judge model</label>
+                <label className={FIELD_LABEL}>Judge model</label>
                 {!hasApiKey ? (
-                  <p className="text-xs text-muted-foreground">API key required</p>
+                  <p className="text-xs text-text-3">API key required</p>
                 ) : (
                   <SelectField
                     value={judgeModel}
@@ -235,7 +238,7 @@ export function ConfigSection({
                 )}
               </div>
               <div className="min-w-0 space-y-1.5">
-                <label className="text-sm font-medium">Provider</label>
+                <label className={FIELD_LABEL}>Provider</label>
                 {judgeModel ? (
                   <SelectField
                     value={judgeProvider}
@@ -245,7 +248,7 @@ export function ConfigSection({
                     isLoading={loadingJudgeProviders}
                   />
                 ) : (
-                  <div className="flex h-[34px] items-center rounded-lg border border-white/8 bg-white/3 px-3 text-xs text-white/20 select-none">
+                  <div className="flex h-[34px] select-none items-center rounded-lg border border-border bg-muted/40 px-3 text-xs text-text-4">
                     select model first
                   </div>
                 )}
@@ -265,15 +268,15 @@ export function ConfigSection({
 
             {/* Criteria */}
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Evaluation criteria</label>
+              <label className={FIELD_LABEL}>Evaluation criteria</label>
               <textarea
                 value={judgeCriteria}
                 onChange={(e) => onJudgeCriteriaChange(e.target.value)}
                 rows={2}
                 placeholder="relevance, coherence, naturalness, educational value"
-                className="w-full resize-none rounded-lg border border-border bg-white/4 px-3 py-2 text-sm outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/20"
+                className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-text-0 outline-none placeholder:text-text-3 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-text-3">
                 Comma-separated criteria sent to the judge model
               </p>
             </div>

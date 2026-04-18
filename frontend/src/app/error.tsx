@@ -14,12 +14,12 @@ export default function ErrorPage({
   }, [error])
 
   return (
-    <div className="min-h-full flex items-center justify-center p-8">
-      <div className="text-center space-y-3">
-        <h1 className="text-xl font-semibold text-red-400">Something went wrong</h1>
-        <p className="text-sm text-zinc-400">{error.message}</p>
+    <div className="flex min-h-full items-center justify-center p-8">
+      <div className="space-y-3 text-center">
+        <h1 className="font-serif text-2xl italic text-destructive">Something went wrong</h1>
+        <p className="text-sm text-text-3">{error.message}</p>
         <button
-          className="text-sm text-violet-400 hover:underline cursor-pointer"
+          className="cursor-pointer text-sm text-primary hover:underline"
           onClick={unstable_retry}
         >
           Try again

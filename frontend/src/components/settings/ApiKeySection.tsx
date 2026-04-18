@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { Trash2, AlertCircle, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { saveApiKey, deleteApiKey, testConnection } from '@/lib/api'
-import { cn } from '@/lib/utils'
 
 interface ApiKeySectionProps {
   hasKey: boolean
@@ -71,24 +70,24 @@ export function ApiKeySection({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+      <p className="text-[11px] font-semibold uppercase tracking-widest text-text-3">
         OpenRouter API Key
       </p>
 
       {hasKey && !showInput ? (
-        /* Connected state — green banner */
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/6 px-4 py-2.5">
-          <div className="flex flex-1 items-center gap-2 min-w-0">
-            <span className="size-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
-            <span className="text-sm font-medium text-emerald-400">Connected</span>
-            <span className="font-mono text-sm text-muted-foreground truncate">{keyPreview ?? '…'}</span>
+        /* Connected state */
+        <div className="flex items-center gap-3 rounded-lg border border-transparent bg-ok/10 px-4 py-2.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="size-2 shrink-0 rounded-full bg-ok shadow-[0_0_6px_var(--color-ok)]" />
+            <span className="text-sm font-medium text-ok">Connected</span>
+            <span className="truncate font-mono text-sm text-text-2">{keyPreview ?? '…'}</span>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex shrink-0 items-center gap-1.5">
             {testResult === 'ok' && (
-              <span className="text-xs text-emerald-400">OK ✓</span>
+              <span className="text-xs text-ok">OK ✓</span>
             )}
             {testResult === 'fail' && (
-              <span className="text-xs text-red-400">Failed — check key</span>
+              <span className="text-xs text-destructive">Failed — check key</span>
             )}
             <Button variant="ghost" size="sm" onClick={handleTest} disabled={testing}>
               {testing ? 'Testing…' : 'Test'}
@@ -118,7 +117,7 @@ export function ApiKeySection({
               onKeyDown={(e) => e.key === 'Enter' && handleSave()}
               placeholder="sk-or-…"
               autoFocus
-              className="flex-1 rounded-lg border border-border bg-white/4 px-3 py-1.5 text-sm outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/20"
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-text-0 outline-none placeholder:text-text-3 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
             />
             <Button onClick={handleSave} disabled={saving || !inputKey.trim()} size="sm">
               {saving ? 'Saving…' : 'Save'}
@@ -139,8 +138,8 @@ export function ApiKeySection({
         </p>
       )}
 
-      <div className="flex items-start gap-2 rounded-lg bg-white/4 px-3 py-2.5 text-xs text-muted-foreground">
-        <Info className="size-3.5 mt-0.5 shrink-0" />
+      <div className="flex items-start gap-2 rounded-lg border border-border bg-muted px-3 py-2.5 text-xs text-text-3">
+        <Info className="mt-0.5 size-3.5 shrink-0" />
         <span>
           Stored locally on your device — never sent anywhere else.
           You are responsible for complying with OpenRouter's terms of service.

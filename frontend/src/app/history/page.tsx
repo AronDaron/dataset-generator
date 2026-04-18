@@ -35,32 +35,32 @@ function getStatusStyle(status: string): StatusStyle {
     case 'completed':
       return {
         dot: '',
-        label: 'text-emerald-400',
-        icon: <CheckCircle2 className="size-4 text-emerald-400" />,
+        label: 'text-ok',
+        icon: <CheckCircle2 className="size-4 text-ok" />,
       }
     case 'failed':
       return {
         dot: '',
-        label: 'text-red-400',
-        icon: <AlertCircle className="size-4 text-red-400" />,
+        label: 'text-destructive',
+        icon: <AlertCircle className="size-4 text-destructive" />,
       }
     case 'cancelled':
       return {
         dot: '',
-        label: 'text-muted-foreground',
-        icon: <XCircle className="size-4 text-muted-foreground" />,
+        label: 'text-text-3',
+        icon: <XCircle className="size-4 text-text-3" />,
       }
     case 'running':
     case 'cancelling':
       return {
-        dot: 'bg-blue-400 animate-pulse',
-        label: 'text-blue-400',
+        dot: 'bg-info animate-pulse',
+        label: 'text-info',
         icon: null,
       }
     default:
       return {
-        dot: 'bg-muted-foreground',
-        label: 'text-muted-foreground',
+        dot: 'bg-text-3',
+        label: 'text-text-3',
         icon: null,
       }
   }
@@ -84,19 +84,19 @@ function CategoryModels({ models, globalModel }: { models: string[]; globalModel
 
   return (
     <div className="flex items-center gap-1.5">
-      <span className="shrink-0 text-xs text-muted-foreground">Per cat:</span>
+      <span className="shrink-0 text-[11px] uppercase tracking-widest text-text-3">Per cat</span>
       <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
         {visible.map((m, i) => (
           <span key={i} className={cn(
             'max-w-[160px] truncate font-mono text-xs',
-            allSameAsGlobal ? 'text-muted-foreground' : 'text-foreground/70',
+            allSameAsGlobal ? 'text-text-3' : 'text-text-1',
           )}>
             {m}{i < visible.length - 1 || hidden.length > 0 ? ',' : ''}
           </span>
         ))}
         {hidden.length > 0 && (
           <span
-            className="relative cursor-default font-mono text-xs text-muted-foreground underline decoration-dotted"
+            className="relative cursor-default font-mono text-xs text-text-3 underline decoration-dotted"
             title={hidden.join('\n')}
           >
             +{hidden.length} more
@@ -139,8 +139,10 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
 
   return (
     <div className={cn(
-      "flex flex-col gap-4 rounded-xl border px-5 py-5 sm:flex-row sm:items-center sm:gap-5",
-      selected ? "border-primary/40 bg-primary/5" : "border-white/8 bg-white/3",
+      "flex flex-col gap-4 rounded-xl border px-5 py-5 transition-colors sm:flex-row sm:items-center sm:gap-5",
+      selected
+        ? "border-[color-mix(in_oklab,var(--color-primary)_35%,var(--color-border))] bg-accent-soft"
+        : "border-border bg-card hover:border-line-strong",
     )}>
       {/* Checkbox for completed jobs */}
       {job.status === 'completed' && (
@@ -148,7 +150,7 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
           type="checkbox"
           checked={selected}
           onChange={() => onToggle(job.id)}
-          className="size-4 shrink-0 accent-[oklch(0.65_0.22_292)] cursor-pointer rounded"
+          className="size-4 shrink-0 cursor-pointer rounded accent-[oklch(0.72_0.17_145)]"
         />
       )}
       {/* Status + date */}
@@ -161,21 +163,21 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
             {STATUS_LABELS[job.status] ?? job.status}
           </span>
           {job.is_merged && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-400">
+            <span className="inline-flex items-center gap-1 rounded-full border border-transparent bg-accent-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
               <Merge className="size-3" />
               Merged
             </span>
           )}
         </div>
-        <span className="text-xs text-muted-foreground">{formatDate(job.created_at)}</span>
+        <span className="text-xs text-text-3">{formatDate(job.created_at)}</span>
       </div>
 
       {/* Model + metadata */}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         {/* Global model */}
         <div className="flex items-center gap-1.5">
-          <span className="shrink-0 text-xs text-muted-foreground">Global:</span>
-          <span className="max-w-[220px] truncate font-mono text-xs text-foreground/80">
+          <span className="shrink-0 text-[11px] uppercase tracking-widest text-text-3">Global</span>
+          <span className="max-w-[220px] truncate font-mono text-xs text-text-1">
             {job.model}
           </span>
         </div>
@@ -183,14 +185,14 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
         <CategoryModels models={job.category_models} globalModel={job.model} />
         {/* Format + examples + cost */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider text-muted-foreground">
+          <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider text-text-2">
             {job.format}
           </span>
-          <span className="text-xs text-muted-foreground tabular-nums">
+          <span className="font-mono text-[11.5px] text-text-3 tabular-nums">
             {job.completed.toLocaleString('en-US')}&nbsp;/&nbsp;{job.total_examples.toLocaleString('en-US')} examples
           </span>
           {totalCost > 0 && (
-            <span className="text-xs text-muted-foreground tabular-nums">
+            <span className="font-mono text-[11.5px] text-text-3 tabular-nums">
               {formatCost(totalCost)}
             </span>
           )}
@@ -237,13 +239,13 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
         {dedupState === 'done' && (
           dedupCount > 0 ? (
             <Link href={`/jobs/${job.id}`}>
-              <Button variant="outline" size="sm" className="gap-1.5 border-amber-500/30 text-amber-400 hover:border-amber-500/50">
+              <Button variant="outline" size="sm" className="gap-1.5 border-warn/40 text-warn hover:border-warn/60">
                 <Copy className="size-3.5" />
                 {dedupCount} duplicate{dedupCount !== 1 ? 's' : ''} found
               </Button>
             </Link>
           ) : (
-            <Button variant="outline" size="sm" className="gap-1.5 border-emerald-500/30 text-emerald-400" disabled>
+            <Button variant="outline" size="sm" className="gap-1.5 border-ok/40 text-ok" disabled>
               <CheckCircle2 className="size-3.5" />
               No duplicates
             </Button>
@@ -396,9 +398,9 @@ export default function HistoryPage() {
   }
 
   return (
-    <main className="min-h-screen bg-transparent">
+    <main className="min-h-screen bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-10 glass-header">
+      <header className="sticky top-0 z-10 border-b border-border bg-background">
         <div className="mx-auto flex h-14 max-w-[1800px] items-center justify-between px-8">
           <div className="flex items-center gap-3">
             <Link href="/">
@@ -407,10 +409,10 @@ export default function HistoryPage() {
                 Generator
               </Button>
             </Link>
-            <div className="h-4 w-px bg-white/10" />
+            <div className="h-4 w-px bg-border" />
             <div className="flex items-center gap-2">
               <img src="/logo.png" alt="" className="size-9 rounded" />
-              <span className="text-base font-semibold">History</span>
+              <span className="font-serif text-xl italic tracking-[-0.01em] text-text-0">History</span>
             </div>
           </div>
         </div>
@@ -421,20 +423,20 @@ export default function HistoryPage() {
         {/* Stats bar */}
         {!loading && !error && jobs.length > 0 && (
           <div className="flex flex-wrap gap-3">
-            <div className="flex items-center gap-2 rounded-lg border border-white/8 bg-white/3 px-4 py-2.5">
-              <span className="text-xs text-muted-foreground">Total jobs</span>
-              <span className="font-mono text-sm font-semibold tabular-nums">{stats.jobCount}</span>
+            <div className="flex items-baseline gap-2.5 rounded-lg border border-border bg-card px-4 py-2.5">
+              <span className="text-[11px] uppercase tracking-widest text-text-3">Total jobs</span>
+              <span className="font-serif text-lg italic text-text-0 tabular-nums">{stats.jobCount}</span>
             </div>
-            <div className="flex items-center gap-2 rounded-lg border border-white/8 bg-white/3 px-4 py-2.5">
-              <span className="text-xs text-muted-foreground">Examples generated</span>
-              <span className="font-mono text-sm font-semibold tabular-nums text-emerald-400">
+            <div className="flex items-baseline gap-2.5 rounded-lg border border-border bg-card px-4 py-2.5">
+              <span className="text-[11px] uppercase tracking-widest text-text-3">Examples generated</span>
+              <span className="font-serif text-lg italic text-ok tabular-nums">
                 {stats.totalCompleted.toLocaleString('en-US')}
               </span>
             </div>
             {stats.totalCost > 0 && (
-              <div className="flex items-center gap-2 rounded-lg border border-white/8 bg-white/3 px-4 py-2.5">
-                <span className="text-xs text-muted-foreground">Total cost</span>
-                <span className="font-mono text-sm font-semibold tabular-nums">
+              <div className="flex items-baseline gap-2.5 rounded-lg border border-border bg-card px-4 py-2.5">
+                <span className="text-[11px] uppercase tracking-widest text-text-3">Total cost</span>
+                <span className="font-mono text-sm text-text-1 tabular-nums">
                   {formatCost(stats.totalCost)}
                 </span>
               </div>
@@ -445,34 +447,34 @@ export default function HistoryPage() {
         {/* Filter bar */}
         {!loading && !error && jobs.length > 0 && (
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs text-muted-foreground">Filter:</span>
+            <span className="text-[11px] uppercase tracking-widest text-text-3">Filter</span>
             <div className="flex flex-wrap gap-2">
               {(['all', 'completed', 'running', 'failed', 'cancelled'] as StatusFilter[]).map((s) => (
                 <button
                   key={s}
                   onClick={() => setStatusFilter(s)}
                   className={cn(
-                    'rounded-md border px-3 py-1 text-xs font-medium transition-colors',
+                    'rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition-colors',
                     statusFilter === s
-                      ? 'border-primary/50 bg-primary/15 text-primary'
-                      : 'border-white/8 bg-white/3 text-muted-foreground hover:border-white/15 hover:text-foreground',
+                      ? 'border-transparent bg-accent-soft text-primary'
+                      : 'border-border bg-card text-text-2 hover:border-line-strong hover:bg-muted hover:text-text-0',
                   )}
                 >
                   {s === 'all' ? 'All statuses' : STATUS_LABELS[s]}
                 </button>
               ))}
             </div>
-            <div className="h-4 w-px bg-white/10" />
+            <div className="h-4 w-px bg-border" />
             <div className="flex flex-wrap gap-2">
               {(['all', 'sharegpt', 'alpaca', 'chatml'] as FormatFilter[]).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFormatFilter(f)}
                   className={cn(
-                    'rounded-md border px-3 py-1 font-mono text-xs font-medium transition-colors',
+                    'rounded-full border px-2.5 py-1 font-mono text-[11.5px] font-medium transition-colors',
                     formatFilter === f
-                      ? 'border-primary/50 bg-primary/15 text-primary'
-                      : 'border-white/8 bg-white/3 text-muted-foreground hover:border-white/15 hover:text-foreground',
+                      ? 'border-transparent bg-accent-soft text-primary'
+                      : 'border-border bg-card text-text-2 hover:border-line-strong hover:bg-muted hover:text-text-0',
                   )}
                 >
                   {f === 'all' ? 'All formats' : f.toUpperCase()}
@@ -484,23 +486,23 @@ export default function HistoryPage() {
 
         {/* Merge action bar */}
         {selectedIds.size > 0 && (
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-5 py-3">
-            <span className="text-sm font-medium text-foreground">
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[color-mix(in_oklab,var(--color-primary)_35%,var(--color-border))] bg-accent-soft px-5 py-3">
+            <span className="text-sm font-medium text-text-0">
               {selectedIds.size} selected
             </span>
             <button
               onClick={() => { setSelectedIds(new Set()); setMergeResult(null); setMergeError(null) }}
-              className="text-xs text-muted-foreground underline decoration-dotted hover:text-foreground"
+              className="text-xs text-text-3 underline decoration-dotted hover:text-text-0"
             >
               Clear
             </button>
-            <div className="h-4 w-px bg-white/10" />
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+            <div className="h-4 w-px bg-border" />
+            <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-text-2">
               <input
                 type="checkbox"
                 checked={shuffleOnMerge}
                 onChange={(e) => setShuffleOnMerge(e.target.checked)}
-                className="size-3.5 accent-[oklch(0.65_0.22_292)]"
+                className="size-3.5 accent-[oklch(0.72_0.17_145)]"
               />
               Shuffle
             </label>
@@ -508,7 +510,6 @@ export default function HistoryPage() {
               size="sm"
               onClick={handleMerge}
               disabled={!mergeInfo.canMerge || merging}
-              className="btn-cta"
             >
               {merging ? (
                 <><Loader2 className="size-3.5 animate-spin" /> Merging...</>
@@ -517,18 +518,18 @@ export default function HistoryPage() {
               )}
             </Button>
             {mergeInfo.formatMismatch && selectedIds.size >= 2 && (
-              <span className="text-xs text-amber-400">Selected jobs have different formats</span>
+              <span className="text-xs text-warn">Selected jobs have different formats</span>
             )}
           </div>
         )}
 
         {/* Merge result / error */}
         {mergeResult && (
-          <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/8 px-5 py-3 text-sm text-emerald-400">
+          <div className="flex items-center gap-2 rounded-xl border border-transparent bg-ok/10 px-5 py-3 text-sm text-ok">
             <CheckCircle2 className="size-4 shrink-0" />
             Merged {mergeResult.total_examples.toLocaleString('en-US')} examples from {mergeResult.source_jobs} jobs
             <Link href={`/jobs/${mergeResult.job_id}`}>
-              <Button variant="outline" size="sm" className="ml-2 h-7 gap-1 border-emerald-500/30 text-emerald-400 hover:border-emerald-500/50">
+              <Button variant="outline" size="sm" className="ml-2 h-7 gap-1 border-ok/40 text-ok hover:border-ok/60">
                 <Eye className="size-3" />
                 View
               </Button>
@@ -536,7 +537,7 @@ export default function HistoryPage() {
           </div>
         )}
         {mergeError && (
-          <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/8 px-5 py-3 text-sm text-destructive">
+          <div className="flex items-center gap-2 rounded-xl border border-transparent bg-destructive/10 px-5 py-3 text-sm text-destructive">
             <AlertCircle className="size-4 shrink-0" />
             {mergeError}
           </div>
@@ -544,21 +545,21 @@ export default function HistoryPage() {
 
         {/* Content */}
         {loading && (
-          <div className="rounded-xl border border-dashed border-white/10 py-16 text-center text-sm text-muted-foreground">
+          <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-text-3">
             Loading…
           </div>
         )}
 
         {error && (
-          <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/8 px-5 py-4 text-sm text-destructive">
+          <div className="flex items-start gap-2 rounded-xl border border-transparent bg-destructive/10 px-5 py-4 text-sm text-destructive">
             <AlertCircle className="mt-0.5 size-4 shrink-0" />
             {error}
           </div>
         )}
 
         {!loading && !error && jobs.length === 0 && (
-          <div className="rounded-xl border border-dashed border-white/10 py-16 text-center">
-            <p className="text-sm text-muted-foreground">No jobs yet.</p>
+          <div className="rounded-xl border border-dashed border-border py-16 text-center">
+            <p className="text-sm text-text-3">No jobs yet.</p>
             <Link href="/">
               <Button variant="outline" size="sm" className="mt-4">
                 Start generating
@@ -568,7 +569,7 @@ export default function HistoryPage() {
         )}
 
         {!loading && !error && jobs.length > 0 && filteredJobs.length === 0 && (
-          <div className="rounded-xl border border-dashed border-white/10 py-16 text-center text-sm text-muted-foreground">
+          <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-text-3">
             No jobs match the selected filters.
           </div>
         )}

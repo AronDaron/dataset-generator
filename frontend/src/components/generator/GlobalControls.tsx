@@ -39,7 +39,7 @@ export function GlobalControls({
 
   return (
     <div>
-      <p className="mb-2.5 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+      <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-text-3">
         Parameters
       </p>
       <Card>
@@ -99,7 +99,7 @@ export function GlobalControls({
                 disabled={isAlpaca}
               />
               {isAlpaca && (
-                <p className="mt-1.5 text-xs text-muted-foreground">
+                <p className="mt-1.5 text-xs text-text-3">
                   Locked to 1 for Alpaca format
                 </p>
               )}

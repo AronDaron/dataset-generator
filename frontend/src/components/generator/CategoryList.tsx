@@ -135,15 +135,15 @@ export function CategoryList({ categories, onChange, modelOptions = [], judgeEna
     <div className="space-y-5">
       {/* Header */}
       <div>
-        <h2 className="text-sm font-semibold tracking-wide text-foreground/90">Dataset categories</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
+        <h2 className="font-serif italic text-2xl text-text-0 tracking-[-0.01em]">Dataset categories</h2>
+        <p className="mt-1 text-xs text-text-3">
           Select preset categories or add a custom one. Proportions must sum to 100%.
         </p>
       </div>
 
       {/* Preset chips */}
       <div className="space-y-2">
-        <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-text-3">
           Presets
         </p>
         <div className="flex flex-wrap gap-2">
@@ -156,14 +156,13 @@ export function CategoryList({ categories, onChange, modelOptions = [], judgeEna
                 disabled={!active && isFull}
                 title={preset.description}
                 className={[
-                  'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium',
-                  'transition-all duration-150 backdrop-blur-sm',
-                  'hover:scale-[1.04] active:scale-[0.96]',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-                  'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100',
+                  'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-medium',
+                  'transition-colors duration-150',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                  'disabled:cursor-not-allowed disabled:opacity-40',
                   active
-                    ? 'border-primary/40 bg-primary/12 text-primary shadow-[0_0_12px_oklch(0.65_0.22_292/0.20)]'
-                    : 'border-white/8 bg-white/3 text-foreground/55 hover:bg-white/7 hover:text-foreground/85 hover:border-white/16',
+                    ? 'border-transparent bg-accent-soft text-primary'
+                    : 'border-border bg-card text-text-2 hover:bg-muted hover:text-text-0 hover:border-line-strong',
                 ].join(' ')}
               >
                 {active && <Check className="size-3.5" />}
@@ -176,12 +175,11 @@ export function CategoryList({ categories, onChange, modelOptions = [], judgeEna
             onClick={handleAddCustom}
             disabled={isFull}
             className={[
-              'inline-flex items-center gap-1.5 rounded-full border border-dashed px-3 py-1.5 text-xs font-medium',
-              'transition-all duration-150 backdrop-blur-sm',
-              'hover:scale-[1.04] active:scale-[0.96]',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-              'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100',
-              'border-white/12 text-white/35 hover:border-primary/45 hover:text-primary hover:bg-primary/8',
+              'inline-flex items-center gap-1.5 rounded-full border border-dashed px-2.5 py-1 text-[11.5px] font-medium',
+              'transition-colors duration-150',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+              'disabled:cursor-not-allowed disabled:opacity-40',
+              'border-border text-text-3 hover:border-primary/45 hover:text-primary hover:bg-accent-soft',
             ].join(' ')}
           >
             <Plus className="size-3.5" />
@@ -189,7 +187,7 @@ export function CategoryList({ categories, onChange, modelOptions = [], judgeEna
           </button>
         </div>
         {isFull && (
-          <p className="text-xs text-muted-foreground">Maximum 10 categories.</p>
+          <p className="text-xs text-text-3">Maximum 10 categories.</p>
         )}
       </div>
 
@@ -197,11 +195,11 @@ export function CategoryList({ categories, onChange, modelOptions = [], judgeEna
       {categories.length > 0 && (
         <div className="space-y-3.5">
           <div className="flex items-center gap-3">
-            <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-text-3">
               Active ({categories.length}/10)
             </p>
             {/* Proportion bar */}
-            <div className="flex h-4 flex-1 overflow-hidden rounded-full">
+            <div className="flex h-[30px] flex-1 overflow-hidden rounded-[var(--radius-lg)] border border-border bg-bg-2">
               {categories.map((cat, i) => (
                 <div
                   key={cat.id}
@@ -212,8 +210,8 @@ export function CategoryList({ categories, onChange, modelOptions = [], judgeEna
                   style={{ width: `${cat.proportion}%` }}
                   title={`${cat.name || 'Category'}: ${cat.proportion}%`}
                 >
-                  {cat.proportion >= 18 && (
-                    <span className="text-xs font-semibold text-white/90 drop-shadow-sm truncate px-1">
+                  {cat.proportion >= 10 && (
+                    <span className="truncate px-1 font-mono text-[10.5px] font-semibold text-[var(--color-accent-ink)] drop-shadow-sm">
                       {cat.proportion}%
                     </span>
                   )}
@@ -243,7 +241,7 @@ export function CategoryList({ categories, onChange, modelOptions = [], judgeEna
       )}
 
       {categories.length === 0 && (
-        <div className="rounded-xl border border-dashed border-white/10 py-14 text-center text-sm text-muted-foreground">
+        <div className="rounded-xl border border-dashed border-border py-14 text-center text-sm text-text-3">
           Click a preset above or add a custom category to get started.
         </div>
       )}

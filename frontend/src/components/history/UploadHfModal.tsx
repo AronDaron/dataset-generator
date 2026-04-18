@@ -54,21 +54,16 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && handleClose()}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" />
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/55 backdrop-blur-[4px]" />
         <Dialog.Popup
           className={cn(
             'fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2',
-            'rounded-2xl shadow-2xl',
-            'ring-1 ring-white/10',
+            'rounded-xl border border-border bg-card shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7),0_8px_20px_rgba(0,0,0,0.35)]',
           )}
-          style={{
-            background: 'oklch(0.13 0.026 232 / 0.97)',
-            backdropFilter: 'blur(20px)',
-          }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/8 px-6 py-4">
-            <Dialog.Title className="text-base font-semibold">
+          <div className="flex items-center justify-between border-b border-border px-6 py-4">
+            <Dialog.Title className="font-serif text-xl italic tracking-[-0.01em] text-text-0">
               Upload to HuggingFace
             </Dialog.Title>
             <Dialog.Close
@@ -84,11 +79,11 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
           <div className="px-6 py-5">
             {/* No token state */}
             {!hasHfToken && (
-              <div className="space-y-4 text-center py-4">
-                <AlertCircle className="size-10 text-muted-foreground mx-auto" />
+              <div className="space-y-4 py-4 text-center">
+                <AlertCircle className="mx-auto size-10 text-text-3" />
                 <div className="space-y-1">
-                  <p className="text-sm font-medium">HuggingFace token not configured</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm font-medium text-text-0">HuggingFace token not configured</p>
+                  <p className="text-xs text-text-3">
                     Add your HuggingFace token in Settings (API Keys tab) before uploading.
                   </p>
                 </div>
@@ -102,7 +97,7 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
             {hasHfToken && state === 'form' && (
               <div className="space-y-5">
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Repository name</label>
+                  <label className="text-[11px] font-medium uppercase tracking-widest text-text-3">Repository name</label>
                   <input
                     type="text"
                     value={repoName}
@@ -110,23 +105,23 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
                     onKeyDown={(e) => e.key === 'Enter' && handleUpload()}
                     placeholder="username/my-dataset"
                     autoFocus
-                    className="w-full rounded-lg border border-border bg-white/4 px-3 py-2 text-sm outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/20"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text-0 outline-none placeholder:text-text-3 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-text-3">
                     Format: your-username/dataset-name
                   </p>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Visibility</label>
+                  <label className="text-[11px] font-medium uppercase tracking-widest text-text-3">Visibility</label>
                   <div className="flex gap-3">
                     <button
                       onClick={() => setIsPrivate(true)}
                       className={cn(
                         'flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors',
                         isPrivate
-                          ? 'border-primary/50 bg-primary/15 text-primary'
-                          : 'border-white/8 bg-white/3 text-muted-foreground hover:border-white/15',
+                          ? 'border-transparent bg-accent-soft text-primary'
+                          : 'border-border bg-card text-text-2 hover:border-line-strong hover:bg-muted hover:text-text-0',
                       )}
                     >
                       Private
@@ -136,14 +131,14 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
                       className={cn(
                         'flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors',
                         !isPrivate
-                          ? 'border-primary/50 bg-primary/15 text-primary'
-                          : 'border-white/8 bg-white/3 text-muted-foreground hover:border-white/15',
+                          ? 'border-transparent bg-accent-soft text-primary'
+                          : 'border-border bg-card text-text-2 hover:border-line-strong hover:bg-muted hover:text-text-0',
                       )}
                     >
                       Public
                     </button>
                   </div>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-text-3">
                     {isPrivate
                       ? 'Only you can see this dataset.'
                       : 'Anyone can see and download this dataset.'}
@@ -155,9 +150,9 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
             {/* Uploading state */}
             {hasHfToken && state === 'uploading' && (
               <div className="flex flex-col items-center gap-3 py-8">
-                <Loader2 className="size-8 text-primary animate-spin" />
-                <p className="text-sm text-muted-foreground">
-                  Uploading to <span className="font-mono text-foreground">{repoName}</span>...
+                <Loader2 className="size-8 animate-spin text-primary" />
+                <p className="text-sm text-text-3">
+                  Uploading to <span className="font-mono text-text-1">{repoName}</span>...
                 </p>
               </div>
             )}
@@ -165,10 +160,10 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
             {/* Success state */}
             {hasHfToken && state === 'success' && (
               <div className="flex flex-col items-center gap-4 py-6">
-                <CheckCircle2 className="size-10 text-emerald-400" />
-                <div className="text-center space-y-1">
-                  <p className="text-sm font-medium text-emerald-400">Successfully uploaded!</p>
-                  <p className="font-mono text-xs text-muted-foreground break-all">{resultUrl}</p>
+                <CheckCircle2 className="size-10 text-ok" />
+                <div className="space-y-1 text-center">
+                  <p className="text-sm font-medium text-ok">Successfully uploaded!</p>
+                  <p className="break-all font-mono text-xs text-text-3">{resultUrl}</p>
                 </div>
                 <a href={resultUrl} target="_blank" rel="noopener noreferrer">
                   <Button variant="outline" size="sm" className="gap-1.5">
@@ -183,9 +178,9 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
             {hasHfToken && state === 'error' && (
               <div className="flex flex-col items-center gap-4 py-6">
                 <AlertCircle className="size-10 text-destructive" />
-                <div className="text-center space-y-1">
+                <div className="space-y-1 text-center">
                   <p className="text-sm font-medium text-destructive">Upload failed</p>
-                  <p className="text-xs text-muted-foreground max-w-[300px]">{errorMessage}</p>
+                  <p className="max-w-[300px] text-xs text-text-3">{errorMessage}</p>
                 </div>
               </div>
             )}
@@ -193,7 +188,7 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
 
           {/* Footer */}
           {hasHfToken && (
-            <div className="flex items-center justify-end gap-2 border-t border-white/8 px-6 py-4">
+            <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
               {state === 'form' && (
                 <>
                   <Button variant="ghost" onClick={handleClose}>Cancel</Button>

@@ -35,15 +35,15 @@ export function SliderField({
     <div className={cn('space-y-2', className)}>
       {(label || displayValue !== undefined) && (
         <div className="flex items-center justify-between text-sm">
-          <span className="flex items-center gap-1.5 font-medium">
+          <span className="flex items-center gap-1.5 font-medium text-text-1">
             {label}
             {hint && (
               <span title={hint} className="cursor-help">
-                <Info className="size-3 text-muted-foreground/40" />
+                <Info className="size-3 text-text-3" />
               </span>
             )}
           </span>
-          <span className="rounded-md border border-white/8 bg-white/5 px-1.5 py-0.5 font-mono text-xs tabular-nums text-foreground/80">
+          <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-xs tabular-nums text-text-1">
             {displayValue ?? value}
           </span>
         </div>
@@ -58,15 +58,15 @@ export function SliderField({
         className="relative flex w-full touch-none select-none items-center py-1"
       >
         <Slider.Control className="relative flex w-full items-center">
-          <Slider.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-white/8 ring-1 ring-white/5">
+          <Slider.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-bg-2 ring-1 ring-border">
             <Slider.Indicator className="absolute h-full rounded-full bg-gradient-to-r from-primary/80 to-primary" />
           </Slider.Track>
           <Slider.Thumb
             className={cn(
-              'block size-4 shrink-0 rounded-full bg-white',
-              'shadow-[0_0_7px_oklch(0.65_0.22_292/0.55),0_2px_4px_oklch(0_0_0/0.4)]',
-              'ring-2 ring-primary/28',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              'block size-4 shrink-0 rounded-full bg-text-0',
+              'shadow-[0_0_7px_oklch(0.72_0.17_145/0.45),0_2px_4px_oklch(0_0_0/0.4)]',
+              'ring-2 ring-primary/30',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
               'data-[dragging]:cursor-grabbing data-[dragging]:scale-110 cursor-grab transition-transform',
             )}
@@ -74,7 +74,7 @@ export function SliderField({
         </Slider.Control>
       </Slider.Root>
       {sublabel && (
-        <div className="flex justify-between text-xs text-muted-foreground">
+        <div className="flex justify-between text-xs text-text-3">
           <span>{sublabel.split('↔')[0]?.trim()}</span>
           <span>{sublabel.split('↔')[1]?.trim()}</span>
         </div>

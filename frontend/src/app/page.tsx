@@ -227,15 +227,15 @@ export default function GeneratorPage() {
   return (
     <main className="min-h-screen bg-transparent">
       {/* Header */}
-      <header className="sticky top-0 z-10 glass-header">
+      <header className="sticky top-0 z-10 bg-background border-b border-border">
         <div className="mx-auto flex h-14 max-w-[1800px] items-center justify-between px-8">
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="" className="size-9 rounded" />
-            <span className="text-base font-semibold">Dataset Generator</span>
+            <span className="font-serif italic text-xl text-text-0 tracking-[-0.01em]">Dataset Generator</span>
           </div>
           <div className="flex items-center gap-3">
             {model && (
-              <span className="hidden text-xs text-muted-foreground sm:block font-mono">
+              <span className="hidden text-xs text-text-3 sm:block font-mono">
                 {model}
               </span>
             )}
@@ -259,7 +259,7 @@ export default function GeneratorPage() {
         {/* Left column — categories */}
         <div className="min-w-0">
           {!model && (
-            <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+            <div className="mb-4 flex items-center gap-2 rounded-lg border border-transparent bg-warn/10 px-4 py-3 text-sm text-warn">
               <AlertCircle className="size-4 shrink-0" />
               Open <strong className="mx-1">Settings</strong> to enter your API key and select a model.
             </div>
@@ -311,22 +311,16 @@ export default function GeneratorPage() {
                   onClick={handleStart}
                   disabled={isSubmitting || !isValid()}
                   size="lg"
-                  className="w-full btn-cta"
+                  className="w-full"
                 >
                   {isSubmitting ? 'Starting…' : 'Generate dataset'}
                 </Button>
-                <p className="text-center text-xs text-muted-foreground">
-                  {categories.length > 0 ? (
-                    <>
-                      {`${categories.length} ${categories.length === 1 ? 'category' : 'categories'} · ${totalExamples.toLocaleString('en-US')} examples · ${format.toUpperCase()}`}
-                      {estimatedCost != null && (
-                        <span> · est. ${estimatedCost < 0.001 ? estimatedCost.toFixed(5) : estimatedCost.toFixed(4)}</span>
-                      )}
-                    </>
-                  ) : (
-                    'Select categories from the list on the left'
-                  )}
-                </p>
+                {categories.length > 0 && (
+                  <p className="text-center text-xs text-text-3">
+                    {categories.length} {categories.length === 1 ? 'category' : 'categories'} · {totalExamples} examples · {format.toUpperCase()}
+                    {estimatedCost != null && ` · est. $${estimatedCost < 0.001 ? estimatedCost.toFixed(5) : estimatedCost.toFixed(4)}`}
+                  </p>
+                )}
               </div>
             </>
           )}

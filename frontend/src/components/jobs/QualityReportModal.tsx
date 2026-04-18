@@ -29,10 +29,10 @@ interface QualityReportModalProps {
 
 function scoreBarColor(label: string): string {
   const num = parseInt(label, 10)
-  if (isNaN(num)) return 'bg-violet-500/60'
-  if (num >= 80) return 'bg-emerald-500/60'
-  if (num >= 60) return 'bg-yellow-500/60'
-  return 'bg-red-500/60'
+  if (isNaN(num)) return 'bg-primary/70'
+  if (num >= 80) return 'bg-ok/70'
+  if (num >= 60) return 'bg-warn/70'
+  return 'bg-destructive/70'
 }
 
 function downloadFile(content: string, filename: string, mimeType: string) {
@@ -86,16 +86,16 @@ function ScoreHistogram({ buckets, maxCount }: { buckets: ScoreBucket[]; maxCoun
         const pct = maxCount > 0 ? (b.count / maxCount) * 100 : 0
         return (
           <div key={b.label} className="flex items-center gap-3">
-            <span className="w-14 text-right font-mono text-xs text-muted-foreground">
+            <span className="w-6 shrink-0 font-mono text-xs text-text-3 tabular-nums">
               {b.label}
             </span>
-            <div className="flex-1">
+            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-bg-2">
               <div
-                className={cn('h-5 rounded', scoreBarColor(b.label))}
+                className={cn('h-full rounded-full', scoreBarColor(b.label))}
                 style={{ width: `${Math.max(pct, 1)}%` }}
               />
             </div>
-            <span className="w-16 text-right font-mono text-xs text-muted-foreground">
+            <span className="w-8 shrink-0 text-right font-mono text-xs text-text-2 tabular-nums">
               {b.count}
             </span>
           </div>
@@ -109,7 +109,7 @@ function ScoreHistogram({ buckets, maxCount }: { buckets: ScoreBucket[]; maxCoun
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-text-3">
       {children}
     </h3>
   )
@@ -165,26 +165,21 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && handleClose()}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" />
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/55 backdrop-blur-[4px]" />
         <Dialog.Popup
           className={cn(
             'fixed left-1/2 top-1/2 z-50 w-full max-w-3xl -translate-x-1/2 -translate-y-1/2',
-            'rounded-2xl shadow-2xl',
-            'ring-1 ring-white/10',
+            'rounded-xl border border-border bg-card shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7),0_8px_20px_rgba(0,0,0,0.35)]',
           )}
-          style={{
-            background: 'oklch(0.13 0.026 232 / 0.97)',
-            backdropFilter: 'blur(20px)',
-          }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/8 px-6 py-4">
+          <div className="flex items-center justify-between border-b border-border px-6 py-4">
             <div className="flex items-center gap-2.5">
-              <BarChart3 className="size-4 text-violet-400" />
-              <Dialog.Title className="text-base font-semibold">
+              <BarChart3 className="size-4 text-primary" />
+              <Dialog.Title className="font-serif text-xl italic tracking-[-0.01em] text-text-0">
                 Quality Report
               </Dialog.Title>
-              <span className="rounded bg-white/8 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+              <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-xs text-text-3">
                 #{shortId}
               </span>
             </div>
@@ -202,18 +197,18 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
             {/* Loading */}
             {state === 'loading' && (
               <div className="flex flex-col items-center gap-3 py-8">
-                <Loader2 className="size-8 animate-spin text-violet-400" />
-                <p className="text-sm text-muted-foreground">Loading statistics...</p>
+                <Loader2 className="size-8 animate-spin text-primary" />
+                <p className="text-sm text-text-3">Loading statistics...</p>
               </div>
             )}
 
             {/* Error */}
             {state === 'error' && (
               <div className="flex flex-col items-center gap-3 py-8">
-                <AlertCircle className="size-10 text-red-400" />
+                <AlertCircle className="size-10 text-destructive" />
                 <div className="space-y-1 text-center">
-                  <p className="text-sm font-medium">Failed to load report</p>
-                  <p className="text-xs text-muted-foreground">{errorMessage}</p>
+                  <p className="text-sm font-medium text-text-0">Failed to load report</p>
+                  <p className="text-xs text-text-3">{errorMessage}</p>
                 </div>
               </div>
             )}
@@ -223,15 +218,15 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
               <div className="space-y-6">
                 {/* Judge Score Distribution — only when judge was enabled */}
                 {stats.judge_enabled && dist && (
-                  <div className="rounded-xl border border-white/8 bg-white/3 p-5">
+                  <div className="rounded-xl border border-border bg-bg-0 p-5">
                     <div className="mb-4 flex items-center justify-between">
                       <SectionHeader>Judge Score Distribution</SectionHeader>
-                      <span className="rounded bg-white/8 px-2 py-0.5 font-mono text-xs text-muted-foreground">
-                        Avg: {dist.avg_score}
+                      <span className="font-serif text-lg italic text-text-0 tabular-nums">
+                        Avg&nbsp;{dist.avg_score}
                       </span>
                     </div>
                     <ScoreHistogram buckets={dist.buckets} maxCount={maxBucketCount} />
-                    <div className="mt-3 flex gap-4 border-t border-white/6 pt-3 font-mono text-xs text-muted-foreground">
+                    <div className="mt-3 flex flex-wrap gap-4 border-t border-border pt-3 font-mono text-xs text-text-3">
                       <span>Min: {dist.min_score}</span>
                       <span>Median: {dist.median_score}</span>
                       <span>Max: {dist.max_score}</span>
@@ -241,15 +236,15 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
                 )}
 
                 {/* Token Length by Category — always shown */}
-                <div className="rounded-xl border border-white/8 bg-white/3 p-5">
+                <div className="rounded-xl border border-border bg-bg-0 p-5">
                   <SectionHeader>Token Length by Category</SectionHeader>
                   {stats.token_stats.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No examples found.</p>
+                    <p className="text-xs text-text-3">No examples found.</p>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-left">
                         <thead>
-                          <tr className="border-b border-white/6 text-xs uppercase tracking-wider text-muted-foreground">
+                          <tr className="border-b border-border text-[11px] uppercase tracking-widest text-text-3">
                             <th className="pb-2 pr-4 font-medium">Category</th>
                             <th className="pb-2 pr-4 text-right font-medium">Examples</th>
                             <th className="pb-2 pr-4 text-right font-medium">Avg Tokens</th>
@@ -259,12 +254,12 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
                         </thead>
                         <tbody>
                           {stats.token_stats.map((t) => (
-                            <tr key={t.category} className="border-b border-white/4 last:border-0">
-                              <td className="py-2 pr-4 text-xs font-medium text-foreground">{t.category}</td>
-                              <td className="py-2 pr-4 text-right font-mono text-xs text-foreground/80">{t.examples_count}</td>
-                              <td className="py-2 pr-4 text-right font-mono text-xs text-foreground/80">{t.avg_tokens.toLocaleString('en-US')}</td>
-                              <td className="py-2 pr-4 text-right font-mono text-xs text-muted-foreground">{t.min_tokens.toLocaleString('en-US')}</td>
-                              <td className="py-2 text-right font-mono text-xs text-muted-foreground">{t.max_tokens.toLocaleString('en-US')}</td>
+                            <tr key={t.category} className="border-b border-border last:border-0">
+                              <td className="py-2 pr-4 text-xs font-medium text-text-0">{t.category}</td>
+                              <td className="py-2 pr-4 text-right font-mono text-xs text-text-1">{t.examples_count}</td>
+                              <td className="py-2 pr-4 text-right font-mono text-xs text-text-1">{t.avg_tokens.toLocaleString('en-US')}</td>
+                              <td className="py-2 pr-4 text-right font-mono text-xs text-text-3">{t.min_tokens.toLocaleString('en-US')}</td>
+                              <td className="py-2 text-right font-mono text-xs text-text-3">{t.max_tokens.toLocaleString('en-US')}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -275,12 +270,12 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
 
                 {/* Generation Efficiency — only when judge was enabled */}
                 {stats.judge_enabled && stats.generation_efficiency.length > 0 && (
-                  <div className="rounded-xl border border-white/8 bg-white/3 p-5">
+                  <div className="rounded-xl border border-border bg-bg-0 p-5">
                     <SectionHeader>Generation Efficiency</SectionHeader>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left">
                         <thead>
-                          <tr className="border-b border-white/6 text-xs uppercase tracking-wider text-muted-foreground">
+                          <tr className="border-b border-border text-[11px] uppercase tracking-widest text-text-3">
                             <th className="pb-2 pr-4 font-medium">Category</th>
                             <th className="pb-2 pr-4 text-right font-medium">Target</th>
                             <th className="pb-2 pr-4 text-right font-medium">Done</th>
@@ -290,15 +285,15 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
                         </thead>
                         <tbody>
                           {stats.generation_efficiency.map((e) => (
-                            <tr key={e.category} className="border-b border-white/4 last:border-0">
-                              <td className="py-2 pr-4 text-xs font-medium text-foreground">{e.category}</td>
-                              <td className="py-2 pr-4 text-right font-mono text-xs text-foreground/80">{e.target}</td>
-                              <td className="py-2 pr-4 text-right font-mono text-xs text-foreground/80">{e.completed}</td>
-                              <td className="py-2 pr-4 text-right font-mono text-xs text-muted-foreground">{e.skipped}</td>
+                            <tr key={e.category} className="border-b border-border last:border-0">
+                              <td className="py-2 pr-4 text-xs font-medium text-text-0">{e.category}</td>
+                              <td className="py-2 pr-4 text-right font-mono text-xs text-text-1">{e.target}</td>
+                              <td className="py-2 pr-4 text-right font-mono text-xs text-text-1">{e.completed}</td>
+                              <td className="py-2 pr-4 text-right font-mono text-xs text-text-3">{e.skipped}</td>
                               <td className={cn(
                                 'py-2 text-right font-mono text-xs font-semibold',
-                                e.success_rate >= 90 ? 'text-emerald-400' :
-                                e.success_rate >= 70 ? 'text-yellow-400' : 'text-red-400',
+                                e.success_rate >= 90 ? 'text-ok' :
+                                e.success_rate >= 70 ? 'text-warn' : 'text-destructive',
                               )}>
                                 {e.success_rate}%
                               </td>
@@ -314,7 +309,7 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between border-t border-white/8 px-6 py-4">
+          <div className="flex items-center justify-between border-t border-border px-6 py-4">
             <div className="flex items-center gap-2">
               {state === 'results' && stats && (
                 <>

@@ -39,15 +39,15 @@ function formatDate(iso: string): string {
 }
 
 function scoreColor(score: number): string {
-  if (score >= 80) return 'text-emerald-400'
-  if (score >= 60) return 'text-yellow-400'
-  return 'text-red-400'
+  if (score >= 80) return 'text-ok'
+  if (score >= 60) return 'text-warn'
+  return 'text-destructive'
 }
 
 function scoreBg(score: number): string {
-  if (score >= 80) return 'border-emerald-500/30 bg-emerald-500/10'
-  if (score >= 60) return 'border-yellow-500/30 bg-yellow-500/10'
-  return 'border-red-500/30 bg-red-500/10'
+  if (score >= 80) return 'border-transparent bg-ok/10'
+  if (score >= 60) return 'border-transparent bg-warn/10'
+  return 'border-transparent bg-destructive/10'
 }
 
 // FormattedContent extracted to shared component
@@ -60,17 +60,17 @@ function TurnBlock({ turn }: { turn: Turn }) {
 
   const chipClass =
     label === 'USER'
-      ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+      ? 'bg-info/12 text-info'
       : label === 'ASSISTANT'
-        ? 'border-violet-500/30 bg-violet-500/10 text-violet-300'
-        : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+        ? 'bg-accent-soft text-primary'
+        : 'bg-muted text-text-2'
 
   return (
-    <div className="rounded-lg border border-white/8 bg-white/3 p-4">
+    <div className="rounded-[var(--radius-xl)] border border-border bg-card p-[var(--radius-xl)] transition-colors hover:border-line-strong">
       <div className="mb-3 flex items-center gap-2">
         <span
           className={cn(
-            'inline-flex items-center rounded border px-2 py-0.5 font-mono text-xs font-semibold tracking-widest uppercase',
+            'inline-flex items-center rounded-md px-2 py-1 font-semibold tracking-widest uppercase text-[10.5px]',
             chipClass,
           )}
         >
@@ -86,31 +86,29 @@ function TurnBlock({ turn }: { turn: Turn }) {
 
 function ExampleMetadata({ example }: { example: ExampleItem }) {
   return (
-    <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-white/8 pt-4">
+    <div className="mt-6 grid grid-cols-[1fr_auto] gap-x-2.5 gap-y-1.5 border-t border-border pt-4 text-[13px]">
       {example.judge_score != null && (
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs text-muted-foreground">Judge</span>
-          <span
-            className={cn(
-              'inline-flex items-center rounded border px-2 py-0.5 font-mono text-xs font-semibold',
-              scoreBg(example.judge_score),
-              scoreColor(example.judge_score),
-            )}
-          >
-            {example.judge_score}/100
-          </span>
-        </div>
+        <>
+          <dt className="text-[11px] uppercase tracking-widest text-text-3">Judge</dt>
+          <dd>
+            <span
+              className={cn(
+                'inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold min-w-[44px] justify-center',
+                scoreBg(example.judge_score),
+                scoreColor(example.judge_score),
+              )}
+            >
+              {example.judge_score}/100
+            </span>
+          </dd>
+        </>
       )}
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs text-muted-foreground">Tokens</span>
-        <span className="font-mono text-xs text-foreground/80">
-          {example.tokens.toLocaleString('en-US')}
-        </span>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs text-muted-foreground">Created</span>
-        <span className="text-xs text-foreground/70">{formatDate(example.created_at)}</span>
-      </div>
+      <dt className="text-[11px] uppercase tracking-widest text-text-3">Tokens</dt>
+      <dd className="font-mono text-[12.5px] text-text-1">
+        {example.tokens.toLocaleString('en-US')}
+      </dd>
+      <dt className="text-[11px] uppercase tracking-widest text-text-3">Created</dt>
+      <dd className="font-mono text-[12.5px] text-text-1">{formatDate(example.created_at)}</dd>
     </div>
   )
 }
@@ -131,30 +129,30 @@ function ExampleListItem({ example, index, isSelected, onClick }: ExampleListIte
     <button
       onClick={onClick}
       className={cn(
-        'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+        'relative grid w-full grid-cols-[auto_1fr_auto] items-start gap-x-3 gap-y-1 rounded-lg border px-3 py-3 text-left transition-colors',
         isSelected
-          ? 'border-primary/40 bg-white/8'
-          : 'border-transparent bg-transparent hover:border-white/8 hover:bg-white/4',
+          ? 'border-line-strong bg-bg-2 shadow-[inset_2px_0_0_var(--color-primary)]'
+          : 'border-transparent bg-transparent hover:border-border hover:bg-muted',
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className="font-mono text-xs font-semibold text-foreground/60">#{index + 1}</span>
-        {example.judge_score != null && (
-          <span
-            className={cn(
-              'shrink-0 rounded border px-1.5 py-0 font-mono text-xs font-semibold',
-              scoreBg(example.judge_score),
-              scoreColor(example.judge_score),
-            )}
-          >
-            {example.judge_score}
-          </span>
-        )}
-      </div>
-      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-foreground/70">
-        {preview || <span className="italic text-muted-foreground">No preview</span>}
+      <span className="row-span-2 font-serif italic text-[22px] leading-none text-text-3 tabular-nums">
+        {index + 1}
+      </span>
+      <p className="col-start-2 line-clamp-2 text-xs leading-relaxed text-text-1">
+        {preview || <span className="italic text-text-3">No preview</span>}
       </p>
-      <div className="mt-1.5 font-mono text-xs text-muted-foreground">
+      {example.judge_score != null && (
+        <span
+          className={cn(
+            'col-start-3 row-start-1 shrink-0 rounded-full px-1.5 py-0.5 font-mono text-[11px] font-semibold min-w-[30px] text-center',
+            scoreBg(example.judge_score),
+            scoreColor(example.judge_score),
+          )}
+        >
+          {example.judge_score}
+        </span>
+      )}
+      <div className="col-start-2 col-span-2 font-mono text-[11.5px] text-text-3">
         {example.tokens.toLocaleString('en-US')} tok
       </div>
     </button>
@@ -224,7 +222,7 @@ export default function JobDetailPage() {
   return (
     <main className="min-h-screen bg-transparent">
       {/* Header */}
-      <header className="sticky top-0 z-10 glass-header">
+      <header className="sticky top-0 z-10 bg-background border-b border-border">
         <div className="mx-auto flex h-14 max-w-[1800px] items-center gap-3 px-8">
           <Link href="/">
             <Button variant="ghost" size="sm" className="gap-1.5">
@@ -232,31 +230,31 @@ export default function JobDetailPage() {
               Generator
             </Button>
           </Link>
-          <div className="h-4 w-px bg-white/10" />
+          <div className="h-4 w-px bg-border" />
           <Link href="/history">
-            <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground hover:text-foreground">
+            <Button variant="ghost" size="sm" className="gap-1.5">
               History
             </Button>
           </Link>
-          <div className="h-4 w-px bg-white/10" />
+          <div className="h-4 w-px bg-border" />
           <div className="flex items-center gap-2">
             <Database className="size-4 text-primary" />
-            <span className="text-sm font-semibold">
-              Job <span className="font-mono text-muted-foreground">#{shortId}</span>
+            <span className="text-sm text-text-1">
+              Job <span className="font-serif italic text-lg text-text-0">#{shortId}</span>
             </span>
           </div>
           {job && (
             <>
-              <div className="h-4 w-px bg-white/10" />
-              <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              <div className="h-4 w-px bg-border" />
+              <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider text-text-2">
                 {job.config.format}
               </span>
-              <span className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">
+              <span className="max-w-[200px] truncate font-mono text-xs text-text-3">
                 {job.config.model}
               </span>
               {job.status === 'completed' && (
                 <>
-                  <div className="h-4 w-px bg-white/10" />
+                  <div className="h-4 w-px bg-border" />
                   <Button
                     variant="outline"
                     size="sm"
@@ -287,15 +285,15 @@ export default function JobDetailPage() {
       {/* Loading skeleton */}
       {loadingJob && (
         <div className="mx-auto flex h-[calc(100vh-3.5rem)] max-w-[1800px] gap-0 px-8 py-6">
-          <div className="w-72 shrink-0 animate-pulse rounded-xl bg-white/5" />
-          <div className="ml-4 flex-1 animate-pulse rounded-xl bg-white/5" />
+          <div className="w-72 shrink-0 animate-pulse rounded-xl bg-bg-2" />
+          <div className="ml-4 flex-1 animate-pulse rounded-xl bg-bg-2" />
         </div>
       )}
 
       {/* Error */}
       {!loadingJob && errorJob && (
         <div className="mx-auto max-w-[1800px] px-8 py-8">
-          <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/8 px-5 py-4 text-sm text-destructive">
+          <div className="flex items-start gap-2 rounded-xl border border-transparent bg-destructive/10 px-5 py-4 text-sm text-destructive">
             <AlertCircle className="mt-0.5 size-4 shrink-0" />
             {errorJob}
           </div>
@@ -306,16 +304,18 @@ export default function JobDetailPage() {
       {!loadingJob && !errorJob && (
         <div className="mx-auto flex h-[calc(100vh-3.5rem)] max-w-[1800px]">
           {/* Left panel — example list */}
-          <aside className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-white/8">
-            <div className="sticky top-0 border-b border-white/8 bg-[hsl(var(--background))] px-3 py-2.5">
-              <span className="text-xs text-muted-foreground">
-                {examples.length.toLocaleString('en-US')} example{examples.length !== 1 ? 's' : ''}
-                {hasMore ? '+' : ''}
+          <aside className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-border">
+            <div className="sticky top-0 z-[1] flex items-baseline justify-between border-b border-border bg-background px-3 py-2.5">
+              <span className="text-[11px] uppercase tracking-widest font-semibold text-text-3">
+                Examples
+              </span>
+              <span className="font-serif italic text-lg text-text-1 tabular-nums">
+                {examples.length.toLocaleString('en-US')}{hasMore ? '+' : ''}
               </span>
             </div>
 
             {examples.length === 0 && (
-              <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
+              <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-text-3">
                 No examples yet.
               </div>
             )}
@@ -334,18 +334,18 @@ export default function JobDetailPage() {
 
             {/* Load more */}
             {hasMore && (
-              <div className="border-t border-white/8 p-2">
+              <div className="border-t border-border p-2">
                 <button
                   onClick={handleLoadMore}
                   disabled={loadingMore}
-                  className="w-full rounded-md py-2 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                  className="w-full rounded-md py-2 text-xs text-text-3 transition-colors hover:text-text-0 disabled:opacity-50"
                 >
                   {loadingMore ? 'Loading…' : 'Load more'}
                 </button>
               </div>
             )}
             {!hasMore && examples.length >= PAGE_LIMIT && (
-              <div className="border-t border-white/8 px-3 py-2 text-center text-xs text-muted-foreground">
+              <div className="border-t border-border px-3 py-2 text-center text-xs text-text-3">
                 All {examples.length} examples loaded
               </div>
             )}
@@ -357,13 +357,13 @@ export default function JobDetailPage() {
             className="flex-1 overflow-y-auto px-8 py-6"
           >
             {!selectedExample && examples.length > 0 && (
-              <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-white/10 text-sm text-muted-foreground">
+              <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border text-sm text-text-3">
                 Select an example from the list
               </div>
             )}
 
             {!selectedExample && examples.length === 0 && (
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              <div className="flex h-full items-center justify-center text-sm text-text-3">
                 No examples to display.
               </div>
             )}
@@ -373,15 +373,19 @@ export default function JobDetailPage() {
               const turns = parseTurns(selectedExample)
               return (
                 <div className="mx-auto max-w-3xl">
-                  <h2 className="mb-5 text-sm font-semibold text-foreground/70">
-                    Example{' '}
-                    <span className="font-mono text-foreground">#{idx + 1}</span>
+                  <h2 className="mb-5 flex items-baseline gap-2">
+                    <span className="text-[11px] uppercase tracking-widest font-semibold text-text-3">
+                      Example
+                    </span>
+                    <span className="font-serif italic text-3xl text-text-0 tabular-nums leading-none">
+                      #{idx + 1}
+                    </span>
                   </h2>
                   <div className="space-y-3">
                     {turns.length > 0 ? (
                       turns.map((turn, i) => <TurnBlock key={i} turn={turn} />)
                     ) : (
-                      <p className="italic text-sm text-muted-foreground">
+                      <p className="italic text-sm text-text-3">
                         Unable to parse content.
                       </p>
                     )}

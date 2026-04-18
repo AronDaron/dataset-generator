@@ -137,24 +137,19 @@ export function SettingsDialog({
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Backdrop
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+          className="fixed inset-0 z-40 bg-black/55 backdrop-blur-[4px]"
         />
         <Dialog.Popup
           className={cn(
             'fixed left-1/2 top-1/2 z-50 w-full max-w-2xl -translate-x-1/2 -translate-y-1/2',
             'max-h-[90vh] overflow-hidden',
-            'rounded-2xl shadow-2xl',
-            'ring-1 ring-white/10',
+            'rounded-xl border border-border bg-card shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7),0_8px_20px_rgba(0,0,0,0.35)]',
             'flex flex-col',
           )}
-          style={{
-            background: 'oklch(0.13 0.026 232 / 0.97)',
-            backdropFilter: 'blur(20px)',
-          }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/8 px-6 py-4 shrink-0">
-            <Dialog.Title className="text-base font-semibold">
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
+            <Dialog.Title className="font-serif text-xl italic tracking-[-0.01em] text-text-0">
               Settings
             </Dialog.Title>
             <Dialog.Close
@@ -169,16 +164,16 @@ export function SettingsDialog({
           {/* Body: sidebar + content */}
           <div className="flex flex-1 min-h-0">
             {/* Sidebar */}
-            <nav className="w-44 shrink-0 border-r border-white/8 py-3 px-2 space-y-0.5">
+            <nav className="w-44 shrink-0 space-y-0.5 border-r border-border px-2 py-3">
               {TABS.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors text-left',
+                    'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors',
                     activeTab === tab.id
-                      ? 'bg-primary/15 text-primary'
-                      : 'text-muted-foreground hover:bg-white/5 hover:text-foreground',
+                      ? 'bg-accent-soft text-primary'
+                      : 'text-text-2 hover:bg-muted hover:text-text-0',
                   )}
                 >
                   {tab.icon}
@@ -199,7 +194,7 @@ export function SettingsDialog({
                       setKeyPreview(preview)
                     }}
                   />
-                  <div className="border-t border-border/50" />
+                  <div className="border-t border-border" />
                   <HfTokenSection
                     hasToken={hasHfToken}
                     tokenPreview={hfTokenPreview}
@@ -263,11 +258,11 @@ export function SettingsDialog({
 
               {activeTab === 'dedup' && (
                 <div className="space-y-3.5">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-text-3">
                     Deduplication
                   </p>
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Embedding model</label>
+                    <label className="text-[11px] font-medium uppercase tracking-widest text-text-3">Embedding model</label>
                     <SelectField
                       value={embeddingModel}
                       onChange={setEmbeddingModel}
@@ -275,7 +270,7 @@ export function SettingsDialog({
                       placeholder="Select embedding model..."
                       isLoading={loadingEmbeddingModels}
                     />
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-text-3">
                       Model used for semantic similarity detection when checking duplicates
                     </p>
                   </div>
@@ -285,12 +280,12 @@ export function SettingsDialog({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-2 border-t border-white/8 px-6 py-4 shrink-0">
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-6 py-4">
             {saveError && (
               <p className="mr-auto text-sm text-destructive">{saveError}</p>
             )}
             {saveSuccess && (
-              <p className="mr-auto text-sm text-green-600">Saved!</p>
+              <p className="mr-auto text-sm text-ok">Saved!</p>
             )}
             <Button variant="ghost" onClick={onClose} disabled={saving}>
               Cancel

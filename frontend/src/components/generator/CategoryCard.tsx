@@ -167,7 +167,7 @@ export function CategoryCard({
             onChange={(e) => onUpdate(category.id, { name: e.target.value })}
             maxLength={100}
             placeholder="Category name"
-            className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-semibold outline-none transition-colors placeholder:text-white/25 focus-visible:border-primary/50 focus-visible:bg-white/8 focus-visible:ring-2 focus-visible:ring-primary/20"
+            className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-semibold text-text-0 outline-none transition-colors placeholder:text-text-3 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
           />
           {canRemove && (
             <Button
@@ -189,14 +189,14 @@ export function CategoryCard({
           maxLength={1000}
           rows={3}
           placeholder='Description — e.g. "Q&A about TypeScript patterns"'
-          className="w-full resize-y rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none transition-colors text-foreground placeholder:text-white/25 focus-visible:border-primary/50 focus-visible:bg-white/8 focus-visible:ring-2 focus-visible:ring-primary/20"
+          className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-text-3 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
         />
 
         {/* Model + Provider — always side by side */}
         {modelSelectOptions.length > 0 && (
           <div className="grid grid-cols-2 gap-2">
             <div className="min-w-0 space-y-1">
-              <p className="text-xs text-muted-foreground">Model</p>
+              <p className="text-[11px] uppercase tracking-widest font-medium text-text-3">Model</p>
               <SelectField
                 value={category.model ?? ''}
                 onChange={handleModelChange}
@@ -205,7 +205,7 @@ export function CategoryCard({
               />
             </div>
             <div className="min-w-0 space-y-1">
-              <p className="text-xs text-muted-foreground">Provider</p>
+              <p className="text-[11px] uppercase tracking-widest font-medium text-text-3">Provider</p>
               {category.model ? (
                 <SelectField
                   value={category.provider ?? ''}
@@ -215,7 +215,7 @@ export function CategoryCard({
                   isLoading={loadingProviders}
                 />
               ) : (
-                <div className="flex h-[34px] items-center rounded-lg border border-white/8 bg-white/3 px-3 text-xs text-white/20 select-none">
+                <div className="flex h-[34px] items-center rounded-lg border border-border bg-muted/40 px-3 text-xs text-text-4 select-none">
                   select model first
                 </div>
               )}
@@ -224,10 +224,12 @@ export function CategoryCard({
         )}
 
         {/* Judge model + provider (only when judge is enabled globally) */}
+
+
         {judgeEnabled && judgeModelSelectOptions.length > 0 && (
           <div className="grid grid-cols-2 gap-2">
             <div className="min-w-0 space-y-1">
-              <p className="text-xs text-muted-foreground">Judge model</p>
+              <p className="text-[11px] uppercase tracking-widest font-medium text-text-3">Judge model</p>
               <SelectField
                 value={category.judgeModel ?? ''}
                 onChange={handleJudgeModelChange}
@@ -236,7 +238,7 @@ export function CategoryCard({
               />
             </div>
             <div className="min-w-0 space-y-1">
-              <p className="text-xs text-muted-foreground">Judge provider</p>
+              <p className="text-[11px] uppercase tracking-widest font-medium text-text-3">Judge provider</p>
               {category.judgeModel ? (
                 <SelectField
                   value={category.judgeProvider ?? ''}
@@ -246,7 +248,7 @@ export function CategoryCard({
                   isLoading={loadingJudgeProviders}
                 />
               ) : (
-                <div className="flex h-[34px] items-center rounded-lg border border-white/8 bg-white/3 px-3 text-xs text-white/20 select-none">
+                <div className="flex h-[34px] select-none items-center rounded-lg border border-border bg-muted/40 px-3 text-xs text-text-4">
                   select judge model first
                 </div>
               )}
