@@ -26,6 +26,7 @@ Pick categories, set proportions, click Generate — the app handles the rest: t
 - [About](#about)
 - [Benchmark results](#benchmark-results)
 - [Demo](#demo)
+- [Download & install](#download--install)
 - [Key features](#key-features)
 - [Tech stack](#tech-stack)
 - [Requirements](#requirements)
@@ -91,6 +92,69 @@ The V2 jump over V1 came from stacking the pipeline's features end-to-end: embed
 <sub>Generating 50 examples across 4 categories in ShareGPT format with the LLM Judge enabled — from clicking Generate to a finished .jsonl file.</sub>
 
 </div>
+
+---
+
+## Download & install
+
+Pre-built binaries are available on the [Releases](../../releases) page — no Python, no Node.js, just download and run.
+
+| Platform | File | Size | Usage |
+|---|---|---|---|
+| Windows 10/11 (x64) | `DatasetGenerator-windows-x64.zip` | ~100 MB | Extract → double-click `DatasetGenerator.exe` |
+| Linux (AppImage) | `DatasetGenerator-x86_64.AppImage` | ~140 MB | `chmod +x` → double-click |
+| Linux (portable tar.gz) | `DatasetGenerator-linux-x64.tar.gz` | ~140 MB | Extract → run `./DatasetGenerator` |
+
+### Windows
+
+1. Download `DatasetGenerator-windows-x64.zip` from the latest release
+2. Extract anywhere (e.g. `C:\Tools\DatasetGenerator\`)
+3. Double-click `DatasetGenerator.exe`
+
+> **SmartScreen warning on first run** (unsigned executable): click **More info** → **Run anyway**. The app stores data in `%APPDATA%\DatasetGenerator\`.
+
+### Linux — AppImage (recommended)
+
+Single-file distribution, works on Ubuntu 22.04+, Debian 12+, Fedora 38+, and most modern distributions.
+
+```bash
+chmod +x DatasetGenerator-x86_64.AppImage
+./DatasetGenerator-x86_64.AppImage
+```
+
+Or double-click the file after `chmod +x`.
+
+> **FUSE error on Ubuntu 24.04** — if you see `dlopen(): error loading libfuse.so.2`, install the legacy FUSE library:
+> ```bash
+> sudo apt install libfuse2t64     # Ubuntu 24.04+
+> sudo apt install libfuse2        # Ubuntu 22.04 and older
+> ```
+
+### Linux — portable tar.gz
+
+Alternative for environments without AppImage support (e.g. some container/server setups with a desktop session).
+
+```bash
+tar -xzf DatasetGenerator-linux-x64.tar.gz
+cd DatasetGenerator
+./DatasetGenerator
+```
+
+Requires GTK 3 and WebKit2GTK 4.1 on the host (pre-installed on Ubuntu 24.04+, Fedora 38+). On older systems:
+
+```bash
+sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0
+```
+
+### Build from source
+
+See [Quick start](#quick-start) for the development setup. The repo also includes build helpers:
+
+```bash
+./scripts/build_linux.sh          # dist/DatasetGenerator/ + .tar.gz
+./scripts/build_appimage.sh       # requires a prior build_linux.sh run
+.\scripts\build_windows.ps1       # PowerShell, on Windows
+```
 
 ---
 
@@ -188,7 +252,7 @@ When generation finishes, click Upload → configure repo (name, private/public)
 | **Real-time** | Server-Sent Events (SSE) — no WebSockets |
 | **LLM API** | OpenRouter (unified access to ~300 models) |
 | **Embeddings** | OpenRouter Embeddings API + numpy cosine similarity |
-| **Desktop runtime** *(planned)* | Pywebview + PyInstaller `--onedir` |
+| **Desktop runtime** | Pywebview + PyInstaller `--onedir` (Windows `.exe`, Linux `.AppImage` / `.tar.gz`) |
 
 ### Architectural decisions worth noting
 
