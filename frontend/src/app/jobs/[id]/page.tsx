@@ -90,7 +90,7 @@ function ExampleMetadata({ example }: { example: ExampleItem }) {
       {example.judge_score != null && (
         <>
           <dt className="text-[11px] uppercase tracking-widest text-text-3">Judge</dt>
-          <dd>
+          <dd className="text-right">
             <span
               className={cn(
                 'inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold min-w-[44px] justify-center',
@@ -104,11 +104,11 @@ function ExampleMetadata({ example }: { example: ExampleItem }) {
         </>
       )}
       <dt className="text-[11px] uppercase tracking-widest text-text-3">Tokens</dt>
-      <dd className="font-mono text-[12.5px] text-text-1">
+      <dd className="text-right font-mono text-[12.5px] text-text-1">
         {example.tokens.toLocaleString('en-US')}
       </dd>
       <dt className="text-[11px] uppercase tracking-widest text-text-3">Created</dt>
-      <dd className="font-mono text-[12.5px] text-text-1">{formatDate(example.created_at)}</dd>
+      <dd className="text-right font-mono text-[12.5px] text-text-1">{formatDate(example.created_at)}</dd>
     </div>
   )
 }

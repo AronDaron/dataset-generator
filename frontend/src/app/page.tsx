@@ -228,10 +228,10 @@ export default function GeneratorPage() {
     <main className="min-h-screen bg-transparent">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-background border-b border-border">
-        <div className="mx-auto flex h-14 max-w-[1800px] items-center justify-between px-8">
-          <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="" className="size-9 rounded" />
-            <span className="font-serif italic text-xl text-text-0 tracking-[-0.01em]">Dataset Generator</span>
+        <div className="mx-auto flex h-20 max-w-[1800px] items-center justify-between px-8">
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="" className="size-12 rounded" />
+            <span className="font-serif italic text-3xl text-text-0 tracking-[-0.01em]">Dataset Generator</span>
           </div>
           <div className="flex items-center gap-3">
             {model && (

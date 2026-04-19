@@ -246,20 +246,20 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
                         <thead>
                           <tr className="border-b border-border text-[11px] uppercase tracking-widest text-text-3">
                             <th className="pb-2 pr-4 font-medium">Category</th>
-                            <th className="pb-2 pr-4 text-right font-medium">Examples</th>
-                            <th className="pb-2 pr-4 text-right font-medium">Avg Tokens</th>
-                            <th className="pb-2 pr-4 text-right font-medium">Min</th>
-                            <th className="pb-2 text-right font-medium">Max</th>
+                            <th className="pb-2 pr-4 text-center font-medium">Examples</th>
+                            <th className="pb-2 pr-4 text-center font-medium">Avg Tokens</th>
+                            <th className="pb-2 pr-4 text-center font-medium">Min</th>
+                            <th className="pb-2 text-center font-medium">Max</th>
                           </tr>
                         </thead>
                         <tbody>
                           {stats.token_stats.map((t) => (
                             <tr key={t.category} className="border-b border-border last:border-0">
                               <td className="py-2 pr-4 text-xs font-medium text-text-0">{t.category}</td>
-                              <td className="py-2 pr-4 text-right font-mono text-xs text-text-1">{t.examples_count}</td>
-                              <td className="py-2 pr-4 text-right font-mono text-xs text-text-1">{t.avg_tokens.toLocaleString('en-US')}</td>
-                              <td className="py-2 pr-4 text-right font-mono text-xs text-text-3">{t.min_tokens.toLocaleString('en-US')}</td>
-                              <td className="py-2 text-right font-mono text-xs text-text-3">{t.max_tokens.toLocaleString('en-US')}</td>
+                              <td className="py-2 pr-4 text-center font-mono text-xs text-text-1">{t.examples_count}</td>
+                              <td className="py-2 pr-4 text-center font-mono text-xs text-text-1">{t.avg_tokens.toLocaleString('en-US')}</td>
+                              <td className="py-2 pr-4 text-center font-mono text-xs text-text-3">{t.min_tokens.toLocaleString('en-US')}</td>
+                              <td className="py-2 text-center font-mono text-xs text-text-3">{t.max_tokens.toLocaleString('en-US')}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -277,21 +277,21 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
                         <thead>
                           <tr className="border-b border-border text-[11px] uppercase tracking-widest text-text-3">
                             <th className="pb-2 pr-4 font-medium">Category</th>
-                            <th className="pb-2 pr-4 text-right font-medium">Target</th>
-                            <th className="pb-2 pr-4 text-right font-medium">Done</th>
-                            <th className="pb-2 pr-4 text-right font-medium">Skipped</th>
-                            <th className="pb-2 text-right font-medium">Success Rate</th>
+                            <th className="pb-2 pr-4 text-center font-medium">Target</th>
+                            <th className="pb-2 pr-4 text-center font-medium">Done</th>
+                            <th className="pb-2 pr-4 text-center font-medium">Skipped</th>
+                            <th className="pb-2 text-center font-medium">Success Rate</th>
                           </tr>
                         </thead>
                         <tbody>
                           {stats.generation_efficiency.map((e) => (
                             <tr key={e.category} className="border-b border-border last:border-0">
                               <td className="py-2 pr-4 text-xs font-medium text-text-0">{e.category}</td>
-                              <td className="py-2 pr-4 text-right font-mono text-xs text-text-1">{e.target}</td>
-                              <td className="py-2 pr-4 text-right font-mono text-xs text-text-1">{e.completed}</td>
-                              <td className="py-2 pr-4 text-right font-mono text-xs text-text-3">{e.skipped}</td>
+                              <td className="py-2 pr-4 text-center font-mono text-xs text-text-1">{e.target}</td>
+                              <td className="py-2 pr-4 text-center font-mono text-xs text-text-1">{e.completed}</td>
+                              <td className="py-2 pr-4 text-center font-mono text-xs text-text-3">{e.skipped}</td>
                               <td className={cn(
-                                'py-2 text-right font-mono text-xs font-semibold',
+                                'py-2 text-center font-mono text-xs font-semibold',
                                 e.success_rate >= 90 ? 'text-ok' :
                                 e.success_rate >= 70 ? 'text-warn' : 'text-destructive',
                               )}>
