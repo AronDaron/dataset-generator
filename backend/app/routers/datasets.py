@@ -14,6 +14,11 @@ from pydantic import BaseModel, Field
 from app.config import settings
 from app.database import get_db
 from app.models.jobs import MergeRequest, MergeResponse
+from app.routers.jobs import (
+    _fetch_source_configs,
+    _is_merged,
+    _resolve_leaf_sources,
+)
 from app.services.export_service import export_job
 from app.services.hf_service import upload_to_huggingface
 from app.utils import now_iso as _now_iso
@@ -218,12 +223,22 @@ async def merge_datasets(
 
     # Preserve real globals from the source datasets instead of using a
     # placeholder. Unique values joined with ", " (dict.fromkeys keeps order).
-    source_gen_globals = [cfg.get("model", "") for cfg in configs if cfg.get("model")]
+    # If any picked source is itself merged, descend its `merged_from` chain
+    # to the leaves so we never write another "merged" / comma-concat ancestor
+    # string into this job's config.
+    nested_ids: list[str] = []
+    for cfg in configs:
+        if _is_merged(cfg):
+            nested_ids.extend(cfg.get("merged_from", []) or [])
+    nested_map = await _fetch_source_configs(db, nested_ids) if nested_ids else {}
+    leaf_configs = _resolve_leaf_sources(configs, nested_map)
+
+    source_gen_globals = [cfg.get("model", "") for cfg in leaf_configs if cfg.get("model")]
     merged_gen_global = ", ".join(dict.fromkeys(source_gen_globals)) or "unknown"
 
     source_judge_globals = [
         cfg.get("judge_model", "")
-        for cfg in configs
+        for cfg in leaf_configs
         if cfg.get("judge_enabled") and cfg.get("judge_model")
     ]
     merged_judge_global = ", ".join(dict.fromkeys(source_judge_globals)) or None

@@ -79,21 +79,65 @@ async def _fetch_source_configs(
     db: aiosqlite.Connection,
     source_ids: list[str],
 ) -> dict[str, dict]:
-    """Batch-load config_json for a list of source job IDs, returning {id: raw_config}."""
+    """Batch-load config_json, following `merged_from` chains recursively.
+
+    Returns a flat {id: raw_config} map containing both direct sources AND all
+    transitively referenced ancestor configs (for nested merges). Downstream
+    helpers filter leaf vs. merged via `_is_merged()` + `_resolve_leaf_sources`.
+    """
     if not source_ids:
         return {}
-    placeholders = ",".join("?" * len(source_ids))
     configs: dict[str, dict] = {}
-    async with await db.execute(
-        f"SELECT id, config_json FROM jobs WHERE id IN ({placeholders})",
-        source_ids,
-    ) as cursor:
-        for r in await cursor.fetchall():
-            try:
-                configs[r["id"]] = json.loads(r["config_json"])
-            except (json.JSONDecodeError, TypeError):
-                continue
+    pending = list(dict.fromkeys(source_ids))  # de-dupe, preserve order
+    while pending:
+        to_fetch = [sid for sid in pending if sid not in configs]
+        pending = []
+        if not to_fetch:
+            break
+        placeholders = ",".join("?" * len(to_fetch))
+        async with await db.execute(
+            f"SELECT id, config_json FROM jobs WHERE id IN ({placeholders})",
+            to_fetch,
+        ) as cursor:
+            for r in await cursor.fetchall():
+                try:
+                    cfg = json.loads(r["config_json"])
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                configs[r["id"]] = cfg
+                # Queue nested sources so we land on leaves.
+                if _is_merged(cfg):
+                    for nested_id in cfg.get("merged_from", []):
+                        if nested_id not in configs:
+                            pending.append(nested_id)
     return configs
+
+
+def _resolve_leaf_sources(
+    sources: list[dict],
+    source_configs_map: dict[str, dict],
+) -> list[dict]:
+    """Expand any merged source configs to their leaf (non-merged) sources.
+
+    Old merges wrote `"model": "merged"` as a placeholder; newer ones write a
+    comma-joined concat of source globals. Either way the merged node's own
+    `model`/`judge_model` must NOT be used when summarising ancestors. This
+    walks the chain in the pre-fetched map and returns only non-merged leaves.
+    """
+    leaves: list[dict] = []
+    seen_ids: set[str] = set()
+    stack: list[dict] = list(sources)
+    while stack:
+        cfg = stack.pop(0)
+        if _is_merged(cfg):
+            for sid in cfg.get("merged_from", []):
+                if sid in seen_ids or sid not in source_configs_map:
+                    continue
+                seen_ids.add(sid)
+                stack.append(source_configs_map[sid])
+        else:
+            leaves.append(cfg)
+    return leaves
 
 
 def _unique_models_for_category(
@@ -174,9 +218,12 @@ def _row_to_list_item(
     if is_merged and source_configs_map is not None and raw_cfg:
         # For merged jobs, derive real globals and per-category models from the
         # source configs (falls back to whatever was written into this job's
-        # config when a source job has been deleted).
+        # config when a source job has been deleted). If any source is itself
+        # merged (nested merge), descend to the leaves so we never surface
+        # a "merged" placeholder or a ", "-joined concat from an ancestor.
         source_ids = raw_cfg.get("merged_from", []) or []
-        sources = [source_configs_map[sid] for sid in source_ids if sid in source_configs_map]
+        direct_sources = [source_configs_map[sid] for sid in source_ids if sid in source_configs_map]
+        sources = _resolve_leaf_sources(direct_sources, source_configs_map)
 
         global_models = _unique_source_globals(sources, field="model")
         display_global = ", ".join(global_models) if global_models else config.model
@@ -805,12 +852,14 @@ async def get_job_stats(
 
     # Load source configs when this is a merged job so that Run Summary can
     # surface the real per-category gen/judge models (not the placeholder).
+    # For nested merges, descend the chain to leaf (non-merged) sources.
     raw_cfg = _raw_config(row)
     source_configs: list[dict] = []
     if _is_merged(raw_cfg) and raw_cfg:
         source_ids = raw_cfg.get("merged_from", []) or []
         source_map = await _fetch_source_configs(db, source_ids)
-        source_configs = [source_map[sid] for sid in source_ids if sid in source_map]
+        direct_sources = [source_map[sid] for sid in source_ids if sid in source_map]
+        source_configs = _resolve_leaf_sources(direct_sources, source_map)
 
     run_summary = _build_run_summary(row, config, progress, source_configs)
 
