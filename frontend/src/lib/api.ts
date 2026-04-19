@@ -170,7 +170,7 @@ export interface ProgressJson {
   total_examples: number
   completed: number
   skipped: number
-  current_stage: 'pending' | 'generating_topics' | 'generating_examples' | 'completed' | 'cancelled' | 'failed'
+  current_stage: 'pending' | 'generating_topics' | 'generating_examples' | 'completed' | 'cancelled' | 'failed' | 'interrupted'
   current_category: string | null
   categories: Record<string, CategoryProgress>
   judge_stats: JudgeStats | null
@@ -469,4 +469,23 @@ export async function mergeDatasets(req: MergeRequest): Promise<MergeResponse> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
   })
+}
+
+// ---- Resume interrupted/cancelled jobs ----
+
+export interface ResumableJobsResponse {
+  jobs: JobListItem[]
+  interrupted_count: number
+}
+
+export async function getResumableJobs(): Promise<ResumableJobsResponse> {
+  return request<ResumableJobsResponse>('/api/jobs/resumable')
+}
+
+export async function resumeJob(jobId: string): Promise<JobDetail> {
+  return request<JobDetail>(`/api/jobs/${jobId}/resume`, { method: 'POST' })
+}
+
+export async function dismissJob(jobId: string): Promise<JobDetail> {
+  return request<JobDetail>(`/api/jobs/${jobId}/dismiss`, { method: 'POST' })
 }

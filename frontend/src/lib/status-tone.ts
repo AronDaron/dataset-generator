@@ -1,10 +1,11 @@
 export const STATUS_LABELS: Record<string, string> = {
-  pending:    'Pending',
-  running:    'Running',
-  cancelling: 'Cancelling…',
-  cancelled:  'Cancelled',
-  completed:  'Completed',
-  failed:     'Failed',
+  pending:     'Pending',
+  running:     'Running',
+  cancelling:  'Cancelling…',
+  cancelled:   'Cancelled',
+  completed:   'Completed',
+  failed:      'Failed',
+  interrupted: 'Interrupted',
 }
 
 export const STAGE_LABELS: Record<string, string> = {
@@ -14,6 +15,7 @@ export const STAGE_LABELS: Record<string, string> = {
   completed:           'Completed',
   cancelled:           'Cancelled',
   failed:              'Generation error',
+  interrupted:         'Interrupted',
 }
 
 export interface StatusTone {
@@ -50,6 +52,13 @@ export function getStatusTone(status: string, isRunning = false): StatusTone {
       return {
         head: 'text-warn',
         dot: 'bg-warn animate-pulse',
+        status: 'text-warn',
+        barClass: 'bg-warn',
+      }
+    case 'interrupted':
+      return {
+        head: 'text-warn',
+        dot: 'bg-warn',
         status: 'text-warn',
         barClass: 'bg-warn',
       }

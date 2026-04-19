@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _cancelled_jobs: set[str] = set()
+_running_jobs: set[str] = set()
 
 TOPIC_BATCH_SIZE = 10
 _judge_semaphore = asyncio.Semaphore(3)
@@ -55,8 +56,16 @@ def clear_cancellation(job_id: str) -> None:
     _cancelled_jobs.discard(job_id)
 
 
+def is_running(job_id: str) -> bool:
+    return job_id in _running_jobs
+
+
 class _CancelledError(Exception):
     """Internal signal for clean job cancellation."""
+
+
+class AlreadyRunningError(Exception):
+    """Raised when a resume/run is attempted on a job already in flight."""
 
 
 # ---------------------------------------------------------------------------
@@ -161,9 +170,10 @@ def _validate_example_structure(parsed: dict, fmt: str) -> bool:
     if fmt == "alpaca":
         if not isinstance(parsed.get("instruction"), str) or not parsed["instruction"].strip():
             return False
-        for field in ("input", "output"):
-            if field in parsed and not isinstance(parsed[field], str):
-                return False
+        if not isinstance(parsed.get("output"), str) or not parsed["output"].strip():
+            return False
+        if "input" in parsed and not isinstance(parsed["input"], str):
+            return False
         return True
 
     if fmt == "sharegpt":
@@ -781,7 +791,12 @@ async def _run_category(
         )
 
 
-async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
+async def run_job(
+    job_id: str,
+    config: JobConfig,
+    api_key: str,
+    resume_progress: ProgressJson | None = None,
+) -> None:
     """
     Execute the full Plan-then-Execute pipeline for a job.
 
@@ -799,23 +814,36 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
 
     Progress and status are persisted to SQLite after every example.
     Checks is_cancelled(job_id) before each LLM call.
+
+    When `resume_progress` is provided, skips the zero-initialization of
+    progress and uses the caller-supplied state instead (for resume).
+    The target-seeking loop in _run_category naturally stops at target.
     """
     from app.database import get_db
+
+    if job_id in _running_jobs:
+        raise AlreadyRunningError(f"Job {job_id} is already running")
+    _running_jobs.add(job_id)
 
     db = await get_db()
     counts = distribute_examples(config.categories, config.total_examples)
     delay = config.delay_between_requests if config.delay_between_requests is not None else 2.0
 
-    progress = ProgressJson(
-        total_examples=config.total_examples,
-        completed=0,
-        skipped=0,
-        current_stage="generating_topics",
-        categories={
-            c.name: CategoryProgress(target=n, completed=0, skipped=0)
-            for c, n in zip(config.categories, counts)
-        },
-    )
+    if resume_progress is not None:
+        progress = resume_progress
+        progress.current_stage = "generating_topics"
+        progress.current_category = None
+    else:
+        progress = ProgressJson(
+            total_examples=config.total_examples,
+            completed=0,
+            skipped=0,
+            current_stage="generating_topics",
+            categories={
+                c.name: CategoryProgress(target=n, completed=0, skipped=0)
+                for c, n in zip(config.categories, counts)
+            },
+        )
     await _update_progress(db, job_id, "running", progress)
 
     overhead: dict = {}  # accumulates topic + outline usage for cost calculation
@@ -947,3 +975,75 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
 
     finally:
         clear_cancellation(job_id)
+        _running_jobs.discard(job_id)
+
+
+async def resume_job(job_id: str, api_key: str) -> None:
+    """
+    Resume a previously interrupted or cancelled job.
+
+    Reconstructs ProgressJson from DB state:
+      - completed counts come from the `examples` table (actual rows)
+      - skipped counts are read from the stored progress_json (best effort)
+      - judge_stats preserved from stored progress_json if present
+
+    Delegates to run_job() with the reconstructed progress. The target-seeking
+    loop in _run_category naturally resumes from the current completed count.
+    """
+    from app.database import get_db
+
+    db = await get_db()
+    async with await db.execute(
+        "SELECT status, config_json, progress_json FROM jobs WHERE id = ?",
+        (job_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if not row:
+        raise LookupError(f"Job {job_id} not found")
+    # 'pending' is allowed — the resume endpoint sets it before spawning this task.
+    if row["status"] not in ("interrupted", "cancelled", "pending"):
+        raise ValueError(f"Job {job_id} has status {row['status']}, not resumable")
+
+    config = JobConfig.model_validate_json(row["config_json"])
+    counts = distribute_examples(config.categories, config.total_examples)
+    cat_targets = {c.name: n for c, n in zip(config.categories, counts)}
+
+    async with await db.execute(
+        "SELECT category, COUNT(*) AS n FROM examples WHERE job_id = ? GROUP BY category",
+        (job_id,),
+    ) as cur:
+        db_counts = {r["category"]: r["n"] for r in await cur.fetchall()}
+
+    stored_progress: ProgressJson | None = None
+    if row["progress_json"]:
+        try:
+            stored_progress = ProgressJson.model_validate_json(row["progress_json"])
+        except Exception:
+            stored_progress = None
+
+    stored_cat = stored_progress.categories if stored_progress else {}
+    categories: dict[str, CategoryProgress] = {}
+    for name, target in cat_targets.items():
+        completed = db_counts.get(name, 0)
+        skipped = stored_cat.get(name).skipped if name in stored_cat else 0
+        categories[name] = CategoryProgress(
+            target=target,
+            completed=completed,
+            skipped=skipped,
+        )
+
+    total_completed = sum(c.completed for c in categories.values())
+    total_skipped = sum(c.skipped for c in categories.values())
+
+    resume_progress_obj = ProgressJson(
+        total_examples=config.total_examples,
+        completed=total_completed,
+        skipped=total_skipped,
+        current_stage="generating_topics",
+        current_category=None,
+        categories=categories,
+        judge_stats=stored_progress.judge_stats if stored_progress else None,
+    )
+
+    log_event(job_id, "job_resumed", completed=total_completed, target=config.total_examples)
+    await run_job(job_id, config, api_key, resume_progress=resume_progress_obj)

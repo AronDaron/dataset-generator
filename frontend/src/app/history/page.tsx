@@ -2,14 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, AlertCircle, CheckCircle2, XCircle, Upload, Merge } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, AlertCircle, CheckCircle2, XCircle, Upload, Merge, RotateCcw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getJobs, getHfToken, deleteJob, openDatasetsFolder, findDuplicates, mergeDatasets, type JobListItem, type MergeResponse } from '@/lib/api'
+import { getJobs, getHfToken, deleteJob, openDatasetsFolder, findDuplicates, mergeDatasets, resumeJob, dismissJob, type JobListItem, type MergeResponse } from '@/lib/api'
 import { UploadHfModal } from '@/components/history/UploadHfModal'
 import { StatusLegendPopover } from '@/components/jobs/StatusLegendPopover'
 
-type StatusFilter = 'all' | 'completed' | 'running' | 'failed' | 'cancelled'
+type StatusFilter = 'all' | 'completed' | 'running' | 'failed' | 'cancelled' | 'interrupted'
 type FormatFilter = 'all' | 'sharegpt' | 'alpaca' | 'chatml'
 
 function formatDate(iso: string): string {
@@ -58,6 +59,12 @@ function getStatusStyle(status: string): StatusStyle {
         label: 'text-info',
         icon: null,
       }
+    case 'interrupted':
+      return {
+        dot: 'bg-warn',
+        label: 'text-warn',
+        icon: null,
+      }
     default:
       return {
         dot: 'bg-text-3',
@@ -68,12 +75,13 @@ function getStatusStyle(status: string): StatusStyle {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  pending:    'Pending',
-  running:    'Running',
-  cancelling: 'Cancelling…',
-  cancelled:  'Cancelled',
-  completed:  'Completed',
-  failed:     'Failed',
+  pending:     'Pending',
+  running:     'Running',
+  cancelling:  'Cancelling…',
+  cancelled:   'Cancelled',
+  completed:   'Completed',
+  failed:      'Failed',
+  interrupted: 'Interrupted',
 }
 
 const MAX_VISIBLE_MODELS = 3
@@ -117,14 +125,20 @@ interface JobRowProps {
   onUpload: (id: string) => void
   selected: boolean
   onToggle: (id: string) => void
+  onResume: (id: string) => void
+  resumingId: string | null
+  onDismiss: (id: string) => void
+  dismissingId: string | null
 }
 
-function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUpload, selected, onToggle }: JobRowProps) {
+function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUpload, selected, onToggle, onResume, resumingId, onDismiss, dismissingId }: JobRowProps) {
   const [dedupState, setDedupState] = useState<'idle' | 'scanning' | 'done'>('idle')
   const [dedupCount, setDedupCount] = useState(0)
 
   const style = getStatusStyle(job.status)
-  const isTerminal = ['completed', 'cancelled', 'failed'].includes(job.status)
+  const isTerminal = ['completed', 'cancelled', 'failed', 'interrupted'].includes(job.status)
+  const isResumable = ['interrupted', 'cancelled'].includes(job.status) && job.completed > 0
+  const isDismissible = job.status === 'interrupted'
   const totalCost = (job.actual_cost ?? 0) + (job.judge_cost ?? 0)
 
   async function handleCheckDuplicates() {
@@ -202,6 +216,34 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
 
       {/* Actions */}
       <div className="flex shrink-0 items-center gap-2">
+        {isResumable && (
+          <Button
+            size="sm"
+            onClick={() => onResume(job.id)}
+            disabled={resumingId === job.id || resumingId !== null}
+          >
+            {resumingId === job.id ? (
+              <><Loader2 className="size-3.5 animate-spin" /> Resuming…</>
+            ) : (
+              <><RotateCcw className="size-3.5" /> Resume</>
+            )}
+          </Button>
+        )}
+        {isDismissible && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onDismiss(job.id)}
+            disabled={dismissingId === job.id || dismissingId !== null}
+            title="Dismiss — mark as cancelled"
+          >
+            {dismissingId === job.id ? (
+              <><Loader2 className="size-3.5 animate-spin" /> Dismissing…</>
+            ) : (
+              <><X className="size-3.5" /> Dismiss</>
+            )}
+          </Button>
+        )}
         {job.completed > 0 && (
           <Link href={`/jobs/${job.id}`}>
             <Button variant="outline" size="sm">
@@ -278,12 +320,15 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
 }
 
 export default function HistoryPage() {
+  const router = useRouter()
   const [jobs, setJobs] = useState<JobListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [formatFilter, setFormatFilter] = useState<FormatFilter>('all')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [resumingId, setResumingId] = useState<string | null>(null)
+  const [dismissingId, setDismissingId] = useState<string | null>(null)
   const [openingFolderId, setOpeningFolderId] = useState<string | null>(null)
   const [uploadJobId, setUploadJobId] = useState<string | null>(null)
   const [hasHfToken, setHasHfToken] = useState(false)
@@ -344,6 +389,31 @@ export default function HistoryPage() {
       formatMismatch: !sameFormat,
     }
   }, [selectedJobs])
+
+  async function handleResume(id: string) {
+    setResumingId(id)
+    try {
+      await resumeJob(id)
+      // Surface the resumed job on the generator page's dashboard.
+      sessionStorage.setItem('activeJobId', id)
+      router.push('/')
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Resume failed')
+      setResumingId(null)
+    }
+  }
+
+  async function handleDismiss(id: string) {
+    setDismissingId(id)
+    try {
+      const updated = await dismissJob(id)
+      setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, status: updated.status } : j)))
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Dismiss failed')
+    } finally {
+      setDismissingId(null)
+    }
+  }
 
   async function handleDelete(id: string) {
     if (!window.confirm('Delete this job and all its examples? This cannot be undone.')) return
@@ -453,7 +523,7 @@ export default function HistoryPage() {
               <StatusLegendPopover />
             </div>
             <div className="flex flex-wrap gap-2">
-              {(['all', 'completed', 'running', 'failed', 'cancelled'] as StatusFilter[]).map((s) => (
+              {(['all', 'completed', 'running', 'interrupted', 'cancelled', 'failed'] as StatusFilter[]).map((s) => (
                 <button
                   key={s}
                   onClick={() => setStatusFilter(s)}
@@ -587,6 +657,10 @@ export default function HistoryPage() {
                 onDelete={handleDelete}
                 onOpenFolder={handleOpenFolder}
                 onUpload={setUploadJobId}
+                onResume={handleResume}
+                resumingId={resumingId}
+                onDismiss={handleDismiss}
+                dismissingId={dismissingId}
                 deletingId={deletingId}
                 openingFolderId={openingFolderId}
                 selected={selectedIds.has(job.id)}

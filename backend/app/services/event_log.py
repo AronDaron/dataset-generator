@@ -53,6 +53,7 @@ _TEMPLATES: dict[str, tuple[Level, str]] = {
     "example_accepted":              ("info",  "{category} — accepted (score {score})"),
     "example_accepted_no_judge":     ("info",  "{category} — accepted"),
     "job_completed":                 ("info",  "Generation complete — {completed} examples"),
+    "job_resumed":                   ("info",  "Resumed from {completed}/{target} examples"),
 }
 
 

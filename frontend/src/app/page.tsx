@@ -9,9 +9,10 @@ import { CategoryList } from '@/components/generator/CategoryList'
 import { GlobalControls } from '@/components/generator/GlobalControls'
 import { FormatSelector } from '@/components/generator/FormatSelector'
 import { type Category, toApiProportions } from '@/lib/proportions'
-import { getApiKey, getConfig, getModels, createJob, type ModelOption } from '@/lib/api'
+import { getApiKey, getConfig, getModels, createJob, getResumableJobs, type ModelOption, type ResumableJobsResponse } from '@/lib/api'
 import { toGroupedOptions } from '@/lib/model-utils'
 import { JobDashboard } from '@/components/generator/JobDashboard'
+import { NotificationsPopover } from '@/components/generator/NotificationsPopover'
 
 type ExportFormat = 'sharegpt' | 'alpaca' | 'chatml'
 
@@ -73,6 +74,9 @@ export default function GeneratorPage() {
   const [createdJobId, setCreatedJobId] = useState<string | null>(null)
   const [activeJobThreshold, setActiveJobThreshold] = useState(80)
   const [draftLoaded, setDraftLoaded] = useState(false)
+  const [resumable, setResumable] = useState<ResumableJobsResponse>({ jobs: [], interrupted_count: 0 })
+  const [notificationsSeen, setNotificationsSeen] = useState(false)
+  const [dashboardRefresh, setDashboardRefresh] = useState(0)
 
   // Restore draft from localStorage AFTER hydration to avoid SSR mismatch
   useEffect(() => {
@@ -105,6 +109,29 @@ export default function GeneratorPage() {
     const saved = sessionStorage.getItem(SESSION_KEY)
     if (saved) setCreatedJobId(saved)
   }, [])
+
+  const NOTIFICATIONS_SEEN_KEY = 'notificationsSeenAt'
+
+  function refreshResumable() {
+    getResumableJobs()
+      .then(setResumable)
+      .catch(() => { /* non-fatal */ })
+  }
+
+  useEffect(() => {
+    refreshResumable()
+    setNotificationsSeen(sessionStorage.getItem(NOTIFICATIONS_SEEN_KEY) !== null)
+  }, [])
+
+  function handleNotificationsOpen() {
+    refreshResumable()
+    if (!notificationsSeen) {
+      sessionStorage.setItem(NOTIFICATIONS_SEEN_KEY, new Date().toISOString())
+      setNotificationsSeen(true)
+    }
+  }
+
+  const hasNewNotifications = resumable.interrupted_count > 0 && !notificationsSeen
 
   useEffect(() => {
     Promise.all([getApiKey(), getConfig()])
@@ -245,6 +272,21 @@ export default function GeneratorPage() {
                 History
               </Button>
             </Link>
+            <NotificationsPopover
+              jobs={resumable.jobs}
+              hasNew={hasNewNotifications}
+              onOpen={handleNotificationsOpen}
+              onResumed={(jobId) => {
+                const sameJob = jobId === createdJobId
+                updateJobId(jobId)
+                refreshResumable()
+                if (sameJob) setDashboardRefresh((v) => v + 1)
+              }}
+              onDismissed={(jobId) => {
+                refreshResumable()
+                if (jobId === createdJobId) setDashboardRefresh((v) => v + 1)
+              }}
+            />
             <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
               <Settings2 className="size-4" />
               Settings
@@ -275,7 +317,12 @@ export default function GeneratorPage() {
         {/* Right column — parameters (sticky on xl) */}
         <div className="space-y-5 xl:sticky xl:top-20 xl:self-start">
           {createdJobId ? (
-            <JobDashboard jobId={createdJobId} onReset={() => updateJobId(null)} judgeThreshold={activeJobThreshold} />
+            <JobDashboard
+              jobId={createdJobId}
+              onReset={() => updateJobId(null)}
+              judgeThreshold={activeJobThreshold}
+              refreshSignal={dashboardRefresh}
+            />
           ) : (
             <>
               <GlobalControls

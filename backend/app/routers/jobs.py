@@ -29,6 +29,7 @@ from app.models.jobs import (
     JobResponse,
     JobStatsResponse,
     ProgressJson,
+    ResumableJobsResponse,
     RunSummary,
     ScoreBucket,
     ScoreDistribution,
@@ -37,7 +38,15 @@ from app.models.jobs import (
 from app.services.dedup_service import find_duplicates
 from app.services.event_log import clear_events, get_events
 from app.services.export_service import export_job
-from app.services.job_runner import cancel_job, distribute_examples, run_job
+from app.services.job_runner import (
+    AlreadyRunningError,
+    cancel_job,
+    distribute_examples,
+    is_running,
+    resume_job,
+    run_job,
+)
+from app.services.openrouter_client import list_models
 
 router = APIRouter()
 
@@ -180,6 +189,132 @@ async def list_jobs(
     return [_row_to_list_item(row) for row in rows]
 
 
+@router.get("/resumable", response_model=ResumableJobsResponse)
+async def list_resumable_jobs(
+    db: aiosqlite.Connection = Depends(get_db),
+) -> ResumableJobsResponse:
+    """List jobs that can be resumed (interrupted or cancelled, with at least 1 example)."""
+    async with await db.execute(
+        "SELECT j.id, j.status, j.config_json, j.progress_json, j.created_at, j.updated_at, "
+        "(SELECT COUNT(*) FROM examples WHERE examples.job_id = j.id) AS actual_count "
+        "FROM jobs j "
+        "WHERE j.status IN ('interrupted', 'cancelled') "
+        "ORDER BY j.updated_at DESC"
+    ) as cursor:
+        rows = await cursor.fetchall()
+    items = [_row_to_list_item(row) for row in rows if row["actual_count"] > 0]
+    interrupted_count = sum(1 for i in items if i.status == "interrupted")
+    return ResumableJobsResponse(jobs=items, interrupted_count=interrupted_count)
+
+
+@router.post("/{job_id}/resume", response_model=JobResponse, status_code=200)
+async def resume_job_endpoint(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> JobResponse:
+    """Resume an interrupted or cancelled job. Validates model availability before spawning task."""
+    if is_running(job_id):
+        raise HTTPException(status_code=409, detail="Job is already running")
+
+    async with await db.execute(
+        "SELECT id, status, config_json, progress_json, created_at, updated_at "
+        "FROM jobs WHERE id = ?",
+        (job_id,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row["status"] not in ("interrupted", "cancelled"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is {row['status']}, only interrupted or cancelled jobs can be resumed",
+        )
+
+    config = JobConfig.model_validate_json(row["config_json"])
+    api_key = await _get_api_key(db)
+
+    try:
+        available = await list_models(api_key)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Cannot verify models: {exc}") from exc
+    available_ids = {m.get("id") for m in available}
+
+    required_gen = {cat.model or config.model for cat in config.categories}
+    missing_gen = [m for m in required_gen if m not in available_ids]
+    if missing_gen:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot resume: model(s) no longer available on OpenRouter: {', '.join(missing_gen)}",
+        )
+
+    if config.judge_enabled:
+        required_judge = {
+            cat.judge_model or config.judge_model or config.model
+            for cat in config.categories
+        }
+        missing_judge = [m for m in required_judge if m and m not in available_ids]
+        if missing_judge:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Cannot resume: judge model(s) no longer available: {', '.join(missing_judge)}",
+            )
+
+    now = _now_iso()
+    await db.execute(
+        "UPDATE jobs SET status = 'pending', updated_at = ? WHERE id = ?",
+        (now, job_id),
+    )
+    await db.commit()
+
+    asyncio.create_task(resume_job(job_id, api_key))
+
+    async with await db.execute(
+        "SELECT id, status, config_json, progress_json, created_at, updated_at "
+        "FROM jobs WHERE id = ?",
+        (job_id,),
+    ) as cursor:
+        refreshed = await cursor.fetchone()
+    return _row_to_job_response(refreshed)
+
+
+@router.post("/{job_id}/dismiss", response_model=JobResponse, status_code=200)
+async def dismiss_job_endpoint(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> JobResponse:
+    """Dismiss an interrupted job — reclassify it as cancelled so it no longer
+    appears as an unexpected interruption. The job remains in history and can
+    still be resumed from there if the user changes their mind."""
+    async with await db.execute(
+        "SELECT id, status, config_json, progress_json, created_at, updated_at "
+        "FROM jobs WHERE id = ?",
+        (job_id,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row["status"] != "interrupted":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is {row['status']}, only interrupted jobs can be dismissed",
+        )
+
+    now = _now_iso()
+    await db.execute(
+        "UPDATE jobs SET status = 'cancelled', updated_at = ? WHERE id = ?",
+        (now, job_id),
+    )
+    await db.commit()
+
+    async with await db.execute(
+        "SELECT id, status, config_json, progress_json, created_at, updated_at "
+        "FROM jobs WHERE id = ?",
+        (job_id,),
+    ) as cursor:
+        refreshed = await cursor.fetchone()
+    return _row_to_job_response(refreshed)
+
+
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: str,
@@ -221,7 +356,7 @@ async def delete_job_endpoint(
         )
         await db.commit()
 
-    elif status in ("completed", "cancelled", "failed"):
+    elif status in ("completed", "cancelled", "failed", "interrupted"):
         await db.execute("DELETE FROM examples WHERE job_id = ?", (job_id,))
         await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         await db.commit()
@@ -248,7 +383,7 @@ async def _stream_job_progress(
     POLL_INTERVAL = 0.75
     KEEPALIVE_EVERY_TICKS = int(20 / POLL_INTERVAL)  # ~20 s
     MAX_STREAM_TICKS = int(86400 / POLL_INTERVAL)     # 24h hard cap — protects against zombie jobs; frontend auto-reconnects
-    TERMINAL_STATES = {"completed", "cancelled", "failed"}
+    TERMINAL_STATES = {"completed", "cancelled", "failed", "interrupted"}
 
     # Validate job exists before opening the stream
     async with await db.execute(

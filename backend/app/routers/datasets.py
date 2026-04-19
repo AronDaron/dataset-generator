@@ -6,7 +6,6 @@ import random
 import subprocess
 import sys
 import uuid
-from datetime import datetime
 
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException

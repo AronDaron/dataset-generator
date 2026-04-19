@@ -3,7 +3,9 @@ backend/venv/
 __pycache__/
 *.pyc
 *.pyo
-.env
+*.pyd
+*.egg-info/
+.pytest_cache/
 
 # Node.js / Next.js
 frontend/node_modules/
@@ -12,12 +14,42 @@ frontend/out/
 frontend/.env.local
 frontend/.env*.local
 
-# System
-.DS_Store
-*.log
+# Environment / secrets
+.env
+.env.local
+.env.*.local
 
+# SQLite / WAL artefakty (runtime DB nie powinno nigdy trafić do repo)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Wygenerowane datasety (runtime dane, nie repo)
+datasets/
+*.jsonl
+
+# System / IDE
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
+
+# Wewnętrzne dokumenty i plany (portfolio: zostaje tylko README)
 tests/*
 test*
 Fixy-todo*
-*.md
-!README.md
+Audyt*.md
+finetunetesty.md
+kategorie*.md
+plan_*.md
+testy_*.md
+Testy.md
+
+# Lokalne ustawienia Claude Code
+.claude/
+
+# Artefakty pip (przypadkowe pliki typu =1.26.0)
+backend/=*

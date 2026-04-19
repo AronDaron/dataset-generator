@@ -17,9 +17,10 @@ async def init_db() -> None:
     await _db.execute("PRAGMA journal_mode = WAL")
     await _db.execute("PRAGMA synchronous = NORMAL")
     await run_migrations(_db)
-    # Mark ghost jobs (left running from a previous server session) as failed.
+    # Mark ghost jobs (left running from a previous server session) as interrupted
+    # — they can be resumed via POST /api/jobs/{id}/resume.
     await _db.execute(
-        "UPDATE jobs SET status = 'failed' WHERE status IN ('pending', 'running', 'cancelling')"
+        "UPDATE jobs SET status = 'interrupted' WHERE status IN ('pending', 'running', 'cancelling')"
     )
     await _db.commit()
 

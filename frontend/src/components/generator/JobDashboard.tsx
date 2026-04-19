@@ -10,6 +10,7 @@ import { CATEGORY_COLORS } from './CategoryList'
 import {
   cancelJob,
   openDatasetsFolder,
+  getJob,
   type SSEProgressPayload,
 } from '@/lib/api'
 import { QualityReportModal } from '@/components/jobs/QualityReportModal'
@@ -57,9 +58,10 @@ interface JobDashboardProps {
   jobId: string
   onReset: () => void
   judgeThreshold?: number
+  refreshSignal?: number
 }
 
-export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboardProps) {
+export function JobDashboard({ jobId, onReset, judgeThreshold = 80, refreshSignal = 0 }: JobDashboardProps) {
   const [payload, setPayload] = useState<SSEProgressPayload | null>(null)
   const [sseError, setSseError] = useState<string | null>(null)
   const [isCancelling, setIsCancelling] = useState(false)
@@ -117,7 +119,25 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
       if (retryTimer) clearTimeout(retryTimer)
       es?.close()
     }
-  }, [jobId])
+  }, [jobId, refreshSignal])
+
+  // Fetch job on mount (so status renders before SSE delivers its first event)
+  // and whenever refreshSignal changes (e.g. dismiss from popover, since SSE is
+  // already closed for terminal-state jobs and won't deliver the transition).
+  useEffect(() => {
+    let cancelled = false
+    getJob(jobId)
+      .then((job) => {
+        if (cancelled) return
+        setPayload((prev) =>
+          prev
+            ? { ...prev, status: job.status, progress: job.progress }
+            : { status: job.status, progress: job.progress, examples: [], recent_events: [] },
+        )
+      })
+      .catch(() => { /* non-fatal — SSE will cover it */ })
+    return () => { cancelled = true }
+  }, [refreshSignal, jobId])
 
   // Track start/end timestamps based on status transitions
   useEffect(() => {
@@ -167,7 +187,7 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
   const progress = payload?.progress ?? null
   const examples = payload?.examples ?? []
   const recentEvents = payload?.recent_events ?? []
-  const isTerminal = ['completed', 'cancelled', 'failed'].includes(status)
+  const isTerminal = ['completed', 'cancelled', 'failed', 'interrupted'].includes(status)
   const isRunning  = ['pending', 'running', 'cancelling'].includes(status)
   const globalPct  = progress
     ? Math.min(100, Math.round((progress.completed / Math.max(1, progress.total_examples)) * 100))

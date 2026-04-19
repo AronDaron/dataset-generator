@@ -78,6 +78,7 @@ class ProgressJson(BaseModel):
         "completed",
         "cancelled",
         "failed",
+        "interrupted",
     ]
     current_category: Optional[str] = None
     categories: Dict[str, CategoryProgress]
@@ -108,6 +109,11 @@ class JobListItem(BaseModel):
     actual_cost: float | None = None
     judge_cost: float | None = None
     is_merged: bool = False
+
+
+class ResumableJobsResponse(BaseModel):
+    jobs: List[JobListItem]
+    interrupted_count: int
 
 
 class ExampleResponse(BaseModel):
