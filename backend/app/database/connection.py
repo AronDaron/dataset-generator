@@ -14,6 +14,8 @@ async def init_db() -> None:
     _db = await aiosqlite.connect(str(settings.db_path))
     _db.row_factory = aiosqlite.Row
     await _db.execute("PRAGMA foreign_keys = ON")
+    await _db.execute("PRAGMA journal_mode = WAL")
+    await _db.execute("PRAGMA synchronous = NORMAL")
     await run_migrations(_db)
     # Mark ghost jobs (left running from a previous server session) as failed.
     await _db.execute(

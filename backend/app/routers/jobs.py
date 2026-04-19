@@ -247,7 +247,7 @@ async def _stream_job_progress(
     """Async generator yielding SSE messages for the given job."""
     POLL_INTERVAL = 0.75
     KEEPALIVE_EVERY_TICKS = int(20 / POLL_INTERVAL)  # ~20 s
-    MAX_STREAM_TICKS = int(7200 / POLL_INTERVAL)      # 2h hard cap — protects against zombie jobs
+    MAX_STREAM_TICKS = int(86400 / POLL_INTERVAL)     # 24h hard cap — protects against zombie jobs; frontend auto-reconnects
     TERMINAL_STATES = {"completed", "cancelled", "failed"}
 
     # Validate job exists before opening the stream

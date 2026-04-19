@@ -81,7 +81,9 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
   }, [jobId])
 
   useEffect(() => {
-    const es = new EventSource(`${BACKEND_URL}/api/jobs/${jobId}/stream`)
+    let es: EventSource | null = null
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let closed = false
 
     function handleEvent(e: MessageEvent) {
       try {
@@ -91,11 +93,30 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
       } catch { /* ignore parse errors */ }
     }
 
-    es.addEventListener('progress', handleEvent)
-    es.addEventListener('done', (e) => { handleEvent(e); es.close() })
-    es.onerror = () => { setSseError('Backend connection error.'); es.close() }
+    function connect() {
+      es = new EventSource(`${BACKEND_URL}/api/jobs/${jobId}/stream`)
+      es.addEventListener('progress', handleEvent)
+      es.addEventListener('done', (e) => {
+        handleEvent(e as MessageEvent)
+        closed = true
+        es?.close()
+      })
+      es.onopen = () => setSseError(null)
+      es.onerror = () => {
+        if (closed) return
+        setSseError('Reconnecting…')
+        es?.close()
+        retryTimer = setTimeout(connect, 3000)
+      }
+    }
 
-    return () => es.close()
+    connect()
+
+    return () => {
+      closed = true
+      if (retryTimer) clearTimeout(retryTimer)
+      es?.close()
+    }
   }, [jobId])
 
   // Track start/end timestamps based on status transitions
