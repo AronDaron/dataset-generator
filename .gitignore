@@ -64,3 +64,7 @@ DatasetGenerator-*.tar.gz
 # AppImage build (Faza 7.1)
 AppDir/
 *.AppImage
+
+# Wewnętrzna instrukcja buildu Linux (nie commitujemy)
+kompilacja_linux.md
+verify_linux_build.sh
