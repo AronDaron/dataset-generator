@@ -13,6 +13,8 @@ import {
   type SSEProgressPayload,
 } from '@/lib/api'
 import { QualityReportModal } from '@/components/jobs/QualityReportModal'
+import { StatusLegendPopover } from '@/components/jobs/StatusLegendPopover'
+import { STATUS_LABELS, STAGE_LABELS, getStatusTone } from '@/lib/status-tone'
 
 const TIMING_KEY = (id: string) => `jobTiming:${id}`
 
@@ -24,79 +26,6 @@ function formatDuration(ms: number): string {
   if (h > 0) return `${h}h ${m}m`
   if (m > 0) return `${m}m ${s}s`
   return `${s}s`
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  pending:    'Pending',
-  running:    'Running',
-  cancelling: 'Cancelling…',
-  cancelled:  'Cancelled',
-  completed:  'Completed',
-  failed:     'Failed',
-}
-
-const STAGE_LABELS: Record<string, string> = {
-  pending:             'Awaiting start',
-  generating_topics:   'Generating topics',
-  generating_examples: 'Generating examples',
-  judge_evaluating:    'Evaluating…',
-  completed:           'Completed',
-  cancelled:           'Cancelled',
-  failed:              'Generation error',
-}
-
-interface StatusTone {
-  head: string
-  dot: string
-  status: string
-  barClass: string
-}
-
-function getStatusTone(status: string, isRunning: boolean): StatusTone {
-  switch (status) {
-    case 'completed':
-      return {
-        head: 'text-primary',
-        dot: 'bg-primary shadow-[0_0_8px_var(--color-primary)]',
-        status: 'text-ok',
-        barClass: 'bg-gradient-to-r from-[oklch(0.50_0.14_145)] to-primary',
-      }
-    case 'failed':
-      return {
-        head: 'text-destructive',
-        dot: 'bg-destructive shadow-[0_0_6px_var(--color-destructive)]',
-        status: 'text-destructive',
-        barClass: 'bg-destructive',
-      }
-    case 'cancelled':
-      return {
-        head: 'text-text-2',
-        dot: 'bg-text-3',
-        status: 'text-text-3',
-        barClass: 'bg-text-4',
-      }
-    case 'cancelling':
-      return {
-        head: 'text-warn',
-        dot: 'bg-warn animate-pulse',
-        status: 'text-warn',
-        barClass: 'bg-warn',
-      }
-    case 'running':
-      return {
-        head: 'text-info',
-        dot: 'bg-info animate-pulse shadow-[0_0_6px_var(--color-info)]',
-        status: 'text-info',
-        barClass: isRunning ? 'progress-running' : 'bg-gradient-to-r from-[oklch(0.50_0.14_145)] to-primary',
-      }
-    default:
-      return {
-        head: 'text-text-2',
-        dot: 'bg-text-3',
-        status: 'text-text-3',
-        barClass: 'bg-text-4',
-      }
-  }
 }
 
 function StatChip({
@@ -256,11 +185,14 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
                 {STATUS_LABELS[status] ?? status}
               </span>
             </div>
-            {stageLabel && (
-              <span className="text-[11px] uppercase tracking-widest text-text-3">
-                {stageLabel}
-              </span>
-            )}
+            <div className="flex items-center gap-1">
+              {stageLabel && (
+                <span className="text-[11px] uppercase tracking-widest text-text-3">
+                  {stageLabel}
+                </span>
+              )}
+              <StatusLegendPopover />
+            </div>
           </div>
 
           {/* Big italic % + secondary status */}

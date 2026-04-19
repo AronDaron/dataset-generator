@@ -285,117 +285,13 @@ Layout:
 
 ---
 
-## Usage workflow
-
-```mermaid
-flowchart LR
-    A[Pick categories<br/>and proportions] --> B[Choose model<br/>and format]
-    B --> C[Generate]
-    C --> D{Plan-then-Execute<br/>pipeline}
-    D --> D1[Stage 1:<br/>topics]
-    D1 --> D2[Stage 2:<br/>outlines]
-    D2 --> D3[Stage 3:<br/>examples]
-    D3 --> E{LLM Judge<br/>enabled?}
-    E -->|yes| F[Score 0-100]
-    E -->|no| G[Auto-export JSONL]
-    F -->|score >= threshold| G
-    F -->|score < threshold| D3
-    G --> H[Quality Report<br/>Dedup<br/>HF Upload]
-```
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Next.js (port 3000 dev / static export prod)               │
-│  ┌──────────────┐  ┌─────────────┐  ┌────────────────┐      │
-│  │ Generator UI │  │ Dashboard   │  │ History/Detail │      │
-│  └──────┬───────┘  └──────┬──────┘  └────────┬───────┘      │
-└─────────┼─────────────────┼──────────────────┼──────────────┘
-          │ fetch /api/*    │ EventSource SSE  │
-          ▼                 ▼                  ▼
-┌─────────────────────────────────────────────────────────────┐
-│  FastAPI (port 8000)                                        │
-│  ┌──────────┐ ┌──────────┐ ┌─────────┐ ┌──────────────┐     │
-│  │ /jobs    │ │ /settings│ │ /open-  │ │ /datasets    │     │
-│  │ + SSE    │ │          │ │ router  │ │ open-folder  │     │
-│  └────┬─────┘ └──────────┘ └─────────┘ └──────────────┘     │
-│       │                                                     │
-│       ▼                                                     │
-│  ┌────────────────────────────────────────────────────┐     │
-│  │ services/                                          │     │
-│  │  job_runner • prompt_builder • openrouter_client   │     │
-│  │  token_counter • export_service • dedup_service    │     │
-│  │  embedding_service • hf_service                    │     │
-│  └────────────────────────────────────────────────────┘     │
-│       │                          │                          │
-│       ▼                          ▼                          │
-│  ┌─────────────┐          ┌──────────────────┐              │
-│  │ SQLite      │          │ OpenRouter API   │              │
-│  │ (aiosqlite) │          │ (httpx async)    │              │
-│  └─────────────┘          └──────────────────┘              │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
 ## Project structure
 
 ```
 pipeline/
-├── backend/
-│   ├── app/
-│   │   ├── main.py                  # FastAPI entrypoint, lifespan, CORS
-│   │   ├── config.py                # paths, CORS origins
-│   │   ├── utils.py                 # helpers (api key fetch, ISO timestamps)
-│   │   ├── database/
-│   │   │   ├── connection.py        # aiosqlite singleton
-│   │   │   └── migrations.py        # versioned migrations (v1-v4)
-│   │   ├── models/
-│   │   │   └── jobs.py              # Pydantic: JobConfig, ProgressJson, ...
-│   │   ├── routers/
-│   │   │   ├── health.py
-│   │   │   ├── settings.py          # API keys, HF token, global config
-│   │   │   ├── openrouter.py        # /models, /test, /embedding-models
-│   │   │   ├── jobs.py              # CRUD + SSE + export + dedup + stats
-│   │   │   └── datasets.py          # open-folder
-│   │   └── services/
-│   │       ├── job_runner.py        # pipeline engine (Plan-then-Execute)
-│   │       ├── prompt_builder.py    # 3 prompt types × 3 formats
-│   │       ├── openrouter_client.py # async httpx with retry
-│   │       ├── token_counter.py     # tiktoken + safety margin
-│   │       ├── export_service.py    # JSONL export
-│   │       ├── dedup_service.py     # cosine similarity duplicates
-│   │       ├── embedding_service.py # OpenRouter embeddings
-│   │       └── hf_service.py        # HuggingFace Hub upload
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── layout.tsx           # root layout (Plus Jakarta Sans)
-│   │   │   ├── page.tsx             # generator
-│   │   │   ├── history/page.tsx     # dataset list
-│   │   │   └── jobs/[id]/page.tsx   # dataset preview (split view)
-│   │   ├── components/
-│   │   │   ├── generator/           # CategoryList, GlobalControls, ...
-│   │   │   ├── settings/            # SettingsDialog + sections
-│   │   │   ├── jobs/                # DeduplicateModal, QualityReportModal
-│   │   │   ├── history/             # UploadHfModal
-│   │   │   └── ui/                  # button, card, slider, select, ...
-│   │   └── lib/
-│   │       ├── api.ts               # fetch wrappers + types
-│   │       ├── proportions.ts       # category proportion logic
-│   │       ├── example-utils.ts     # turn-by-turn parser
-│   │       └── provider-icons.ts    # modelId → provider icon map
-│   └── package.json
-├── tests/
-│   ├── unit/                        # 7 files: dedup, embedding, hf, ...
-│   ├── integration/                 # 9 files: jobs, settings, export, ...
-│   └── e2e/                         # 3 files: full pipeline scenarios
-├── plan_projektu.md                 # full project plan (PL)
-└── README.md
+├── backend/    # FastAPI + services (generation, dedup, judge, HF upload)
+├── frontend/   # Next.js UI
+└── tests/      # 270 tests (unit, integration, e2e)
 ```
 
 ---
@@ -412,22 +308,6 @@ cd backend
 ./venv/bin/pytest ../tests/integration/ -v         # integration verbose
 ./venv/bin/pytest ../tests/e2e/ -k "judge"         # specific scenario
 ```
-
----
-
-## Roadmap
-
-- [x] **Phases 0-5** — full generation pipeline + LLM Judge + SSE
-- [x] **History + dataset preview**
-- [x] **HuggingFace Hub upload**
-- [x] **Embedding-based deduplication**
-- [x] **Quality Report**
-- [x] **Dataset merging**
-- [x] **Cost tracking (real usage)**
-- [ ] **Phase 6** — desktop bundle (Pywebview + PyInstaller `--onedir`)
-- [ ] **Phase 7** — auto-update + new-version checks
-- [ ] **Phase 8** — dataset templates (community-contributed)
-- [ ] **Local models** — Ollama / llama.cpp support as an OpenRouter alternative
 
 ---
 

@@ -183,9 +183,35 @@ class GenerationEfficiency(BaseModel):
     success_rate: float
 
 
+class CategoryRunInfo(BaseModel):
+    name: str
+    gen_model: str
+    gen_provider: Optional[str] = None
+    gen_model_is_default: bool
+    judge_model: Optional[str] = None
+    judge_provider: Optional[str] = None
+    judge_model_is_default: bool = False
+    target: int
+    completed: int
+
+
+class RunSummary(BaseModel):
+    started_at: str
+    ended_at: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    status: str
+    format: str
+    total_examples: int
+    actual_examples: int
+    is_merged: bool = False
+    merged_from_count: int = 0
+    categories: List[CategoryRunInfo]
+
+
 class JobStatsResponse(BaseModel):
     job_id: str
     judge_enabled: bool
+    run_summary: Optional[RunSummary] = None
     score_distribution: Optional[ScoreDistribution] = None
     token_stats: List[TokenStatsByCategory]
     generation_efficiency: List[GenerationEfficiency]

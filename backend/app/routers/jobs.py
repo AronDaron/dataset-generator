@@ -19,6 +19,7 @@ import statistics
 
 from app.models.jobs import (
     CategoryProgress,
+    CategoryRunInfo,
     DuplicateRequest,
     DuplicatesResponse,
     ExampleResponse,
@@ -28,6 +29,7 @@ from app.models.jobs import (
     JobResponse,
     JobStatsResponse,
     ProgressJson,
+    RunSummary,
     ScoreBucket,
     ScoreDistribution,
     TokenStatsByCategory,
@@ -417,6 +419,86 @@ def _compute_score_buckets(scores: list[int]) -> list[ScoreBucket]:
     return buckets
 
 
+def _build_run_summary(row, config: JobConfig, progress: Optional[ProgressJson]) -> RunSummary:
+    """Build RunSummary from a jobs row + parsed config/progress."""
+    status = row["status"]
+    started_at = row["created_at"]
+    is_terminal = status in ("completed", "cancelled", "failed")
+    ended_at = row["updated_at"] if is_terminal else None
+
+    duration_seconds: Optional[int] = None
+    if ended_at:
+        try:
+            from datetime import datetime
+            start_dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+            end_dt = datetime.fromisoformat(ended_at.replace("Z", "+00:00"))
+            duration_seconds = max(0, int((end_dt - start_dt).total_seconds()))
+        except (ValueError, TypeError):
+            duration_seconds = None
+
+    # Detect merged jobs by merged_from in config_json
+    is_merged = False
+    merged_from_count = 0
+    try:
+        raw_cfg = json.loads(row["config_json"])
+        merged_from = raw_cfg.get("merged_from")
+        if isinstance(merged_from, list):
+            is_merged = True
+            merged_from_count = len(merged_from)
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    progress_cats = progress.categories if progress and progress.categories else {}
+
+    cat_infos: list[CategoryRunInfo] = []
+    for cat in config.categories:
+        gen_model = cat.model or config.model
+        gen_provider = cat.provider
+        gen_is_default = cat.model is None
+
+        if config.judge_enabled:
+            judge_model = cat.judge_model or config.judge_model or config.model
+            judge_provider = cat.judge_provider or config.judge_provider
+            judge_is_default = cat.judge_model is None
+        else:
+            judge_model = None
+            judge_provider = None
+            judge_is_default = False
+
+        cat_progress = progress_cats.get(cat.name)
+        target = cat_progress.target if cat_progress else 0
+        completed = cat_progress.completed if cat_progress else 0
+
+        cat_infos.append(
+            CategoryRunInfo(
+                name=cat.name,
+                gen_model=gen_model,
+                gen_provider=gen_provider,
+                gen_model_is_default=gen_is_default,
+                judge_model=judge_model,
+                judge_provider=judge_provider,
+                judge_model_is_default=judge_is_default,
+                target=target,
+                completed=completed,
+            )
+        )
+
+    actual_examples = progress.completed if progress else 0
+
+    return RunSummary(
+        started_at=started_at,
+        ended_at=ended_at,
+        duration_seconds=duration_seconds,
+        status=status,
+        format=config.format,
+        total_examples=config.total_examples,
+        actual_examples=actual_examples,
+        is_merged=is_merged,
+        merged_from_count=merged_from_count,
+        categories=cat_infos,
+    )
+
+
 @router.get("/{job_id}/stats", response_model=JobStatsResponse)
 async def get_job_stats(
     job_id: str,
@@ -424,7 +506,7 @@ async def get_job_stats(
 ) -> JobStatsResponse:
     """Quality report statistics for a completed job."""
     async with await db.execute(
-        "SELECT id, status, config_json, progress_json FROM jobs WHERE id = ?",
+        "SELECT id, status, config_json, progress_json, created_at, updated_at FROM jobs WHERE id = ?",
         (job_id,),
     ) as cursor:
         row = await cursor.fetchone()
@@ -433,6 +515,7 @@ async def get_job_stats(
 
     config = JobConfig.model_validate_json(row["config_json"])
     progress = _parse_progress(row)
+    run_summary = _build_run_summary(row, config, progress)
 
     # Token stats by category
     async with await db.execute(
@@ -499,6 +582,7 @@ async def get_job_stats(
     return JobStatsResponse(
         job_id=job_id,
         judge_enabled=config.judge_enabled,
+        run_summary=run_summary,
         score_distribution=score_dist,
         token_stats=token_stats,
         generation_efficiency=efficiency,

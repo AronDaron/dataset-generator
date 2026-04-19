@@ -355,9 +355,35 @@ export interface GenerationEfficiency {
   success_rate: number
 }
 
+export interface CategoryRunInfo {
+  name: string
+  gen_model: string
+  gen_provider: string | null
+  gen_model_is_default: boolean
+  judge_model: string | null
+  judge_provider: string | null
+  judge_model_is_default: boolean
+  target: number
+  completed: number
+}
+
+export interface RunSummary {
+  started_at: string
+  ended_at: string | null
+  duration_seconds: number | null
+  status: string
+  format: string
+  total_examples: number
+  actual_examples: number
+  is_merged: boolean
+  merged_from_count: number
+  categories: CategoryRunInfo[]
+}
+
 export interface JobStats {
   job_id: string
   judge_enabled: boolean
+  run_summary: RunSummary | null
   score_distribution: ScoreDistribution | null
   token_stats: TokenStatsByCategory[]
   generation_efficiency: GenerationEfficiency[]

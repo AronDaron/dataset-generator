@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getJobs, getHfToken, deleteJob, openDatasetsFolder, findDuplicates, mergeDatasets, type JobListItem, type MergeResponse } from '@/lib/api'
 import { UploadHfModal } from '@/components/history/UploadHfModal'
+import { StatusLegendPopover } from '@/components/jobs/StatusLegendPopover'
 
 type StatusFilter = 'all' | 'completed' | 'running' | 'failed' | 'cancelled'
 type FormatFilter = 'all' | 'sharegpt' | 'alpaca' | 'chatml'
@@ -447,7 +448,10 @@ export default function HistoryPage() {
         {/* Filter bar */}
         {!loading && !error && jobs.length > 0 && (
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-[11px] uppercase tracking-widest text-text-3">Filter</span>
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] uppercase tracking-widest text-text-3">Filter</span>
+              <StatusLegendPopover />
+            </div>
             <div className="flex flex-wrap gap-2">
               {(['all', 'completed', 'running', 'failed', 'cancelled'] as StatusFilter[]).map((s) => (
                 <button

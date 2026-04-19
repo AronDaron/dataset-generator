@@ -8,14 +8,17 @@ import {
   AlertCircle,
   BarChart3,
   Download,
+  Merge,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   getJobStats,
   type JobStats,
+  type RunSummary,
   type ScoreBucket,
 } from '@/lib/api'
+import { STATUS_LABELS, getStatusTone } from '@/lib/status-tone'
 
 type ModalState = 'loading' | 'results' | 'error'
 
@@ -35,6 +38,29 @@ function scoreBarColor(label: string): string {
   return 'bg-destructive/70'
 }
 
+function formatTimestamp(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  return d.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+function formatDurationSec(seconds: number | null): string {
+  if (seconds == null || seconds < 0) return '—'
+  if (seconds < 60) return `${seconds}s`
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  return `${m}m ${s}s`
+}
+
 function downloadFile(content: string, filename: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType })
   const url = URL.createObjectURL(blob)
@@ -47,6 +73,34 @@ function downloadFile(content: string, filename: string, mimeType: string) {
 
 function buildCsv(stats: JobStats): string {
   const lines: string[] = []
+
+  if (stats.run_summary) {
+    const r = stats.run_summary
+    lines.push('# Run Summary')
+    lines.push(`# Status: ${r.status}  Format: ${r.format}`)
+    lines.push(`# Started: ${r.started_at}`)
+    lines.push(`# Ended: ${r.ended_at ?? '-'}`)
+    lines.push(`# Duration: ${formatDurationSec(r.duration_seconds)}`)
+    lines.push(`# Examples: ${r.actual_examples} / ${r.total_examples}`)
+    if (r.is_merged) {
+      lines.push(`# Merged from: ${r.merged_from_count} jobs`)
+    }
+    lines.push('')
+    lines.push('# Models per Category')
+    lines.push('Category,Gen Model,Gen Provider,Judge Model,Judge Provider,Target,Completed')
+    for (const c of r.categories) {
+      lines.push([
+        c.name,
+        c.gen_model,
+        c.gen_provider ?? '',
+        c.judge_model ?? '',
+        c.judge_provider ?? '',
+        c.target,
+        c.completed,
+      ].join(','))
+    }
+    lines.push('')
+  }
 
   if (stats.score_distribution) {
     const d = stats.score_distribution
@@ -112,6 +166,116 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
     <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-text-3">
       {children}
     </h3>
+  )
+}
+
+// ---- Run Summary ----
+
+function ModelCell({ name, isDefault }: { name: string | null; isDefault: boolean }) {
+  if (!name) return <span className="text-text-3">—</span>
+  return (
+    <span className="font-mono text-xs">
+      {isDefault && <span className="text-text-3">(default) </span>}
+      <span className="text-text-1">{name}</span>
+    </span>
+  )
+}
+
+function MetricCell({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col items-center gap-1.5 text-center">
+      <span className="text-[10.5px] font-semibold uppercase tracking-widest text-text-3">
+        {label}
+      </span>
+      <div className="text-[12.5px]">{children}</div>
+    </div>
+  )
+}
+
+function RunSummarySection({ summary, judgeEnabled }: { summary: RunSummary; judgeEnabled: boolean }) {
+  const tone = getStatusTone(summary.status)
+  const statusLabel = STATUS_LABELS[summary.status] ?? summary.status
+
+  return (
+    <div className="rounded-xl border border-border bg-bg-0 p-5">
+      <div className="mb-5 flex items-center justify-between">
+        <SectionHeader>Run Summary</SectionHeader>
+        {summary.is_merged && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-transparent bg-accent-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+            <Merge className="size-3" />
+            Merged from {summary.merged_from_count}
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-3 gap-x-4 gap-y-5">
+        <MetricCell label="Started">
+          <span className="font-mono text-text-1">{formatTimestamp(summary.started_at)}</span>
+        </MetricCell>
+        <MetricCell label="Ended">
+          {summary.ended_at ? (
+            <span className="font-mono text-text-1">{formatTimestamp(summary.ended_at)}</span>
+          ) : (
+            <span className="font-mono text-text-3">—</span>
+          )}
+        </MetricCell>
+        <MetricCell label="Duration">
+          <span className="font-mono text-text-1">{formatDurationSec(summary.duration_seconds)}</span>
+        </MetricCell>
+
+        <MetricCell label="Status">
+          <span className="inline-flex items-center gap-2">
+            <span className={cn('size-2 rounded-full', tone.dot)} />
+            <span className={cn('font-medium', tone.head)}>{statusLabel}</span>
+          </span>
+        </MetricCell>
+        <MetricCell label="Format">
+          <span className="font-mono uppercase tracking-wider text-text-1">{summary.format}</span>
+        </MetricCell>
+        <MetricCell label="Examples">
+          <span className="font-mono text-text-1 tabular-nums">
+            {summary.actual_examples.toLocaleString('en-US')} / {summary.total_examples.toLocaleString('en-US')}
+          </span>
+        </MetricCell>
+      </div>
+
+      {summary.categories.length > 0 && (
+        <div className="mt-5 border-t border-border pt-4">
+          <h4 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-text-3">
+            Models per Category
+          </h4>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border text-[10.5px] uppercase tracking-widest text-text-3">
+                  <th className="pb-2 px-3 text-center font-medium">Category</th>
+                  <th className="pb-2 px-3 text-center font-medium">Gen Model</th>
+                  {judgeEnabled && <th className="pb-2 px-3 text-center font-medium">Judge Model</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {summary.categories.map((c) => (
+                  <tr key={c.name} className="border-b border-border last:border-0">
+                    <td className="py-2 px-3 text-center text-xs font-medium text-text-0">{c.name}</td>
+                    <td className="py-2 px-3 text-center">
+                      <ModelCell name={c.gen_model} isDefault={c.gen_model_is_default} />
+                    </td>
+                    {judgeEnabled && (
+                      <td className="py-2 px-3 text-center">
+                        <ModelCell name={c.judge_model} isDefault={c.judge_model_is_default} />
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!judgeEnabled && (
+            <p className="mt-3 text-[11px] italic text-text-3">Judge disabled for this job.</p>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -216,6 +380,11 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
             {/* Results */}
             {state === 'results' && stats && (
               <div className="space-y-6">
+                {/* Run Summary — always shown */}
+                {stats.run_summary && (
+                  <RunSummarySection summary={stats.run_summary} judgeEnabled={stats.judge_enabled} />
+                )}
+
                 {/* Judge Score Distribution — only when judge was enabled */}
                 {stats.judge_enabled && dist && (
                   <div className="rounded-xl border border-border bg-bg-0 p-5">

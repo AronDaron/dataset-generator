@@ -1,8 +1,8 @@
 'use client'
 
-import { Info } from 'lucide-react'
 import { Slider } from '@base-ui/react/slider'
 import { cn } from '@/lib/utils'
+import { HintPopover } from '@/components/ui/hint-popover'
 
 interface SliderFieldProps {
   value: number
@@ -37,11 +37,7 @@ export function SliderField({
         <div className="flex items-center justify-between text-sm">
           <span className="flex items-center gap-1.5 font-medium text-text-1">
             {label}
-            {hint && (
-              <span title={hint} className="cursor-help">
-                <Info className="size-3 text-text-3" />
-              </span>
-            )}
+            {hint && <HintPopover>{hint}</HintPopover>}
           </span>
           <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-xs tabular-nums text-text-1">
             {displayValue ?? value}
