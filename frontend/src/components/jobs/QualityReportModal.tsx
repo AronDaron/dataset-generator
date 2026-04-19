@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
+  downloadViaProxy,
   getJobStats,
   type JobStats,
   type RunSummary,
@@ -62,13 +63,9 @@ function formatDurationSec(seconds: number | null): string {
 }
 
 function downloadFile(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
+  // Go through the backend proxy so pywebview/WebView2 triggers a native save
+  // dialog. A plain Blob + a.click() is silently dropped in the desktop shell.
+  downloadViaProxy(filename, mimeType, content)
 }
 
 function buildCsv(stats: JobStats): string {

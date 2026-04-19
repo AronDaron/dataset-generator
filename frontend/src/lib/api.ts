@@ -248,6 +248,36 @@ export async function openDatasetsFolder(): Promise<void> {
   await request<{ path: string }>('/api/datasets/open-folder', { method: 'POST' })
 }
 
+/**
+ * Download generated content as a file. Works in both dev (Chrome) and the
+ * desktop pywebview window, where `a.download` on a Blob URL is a no-op.
+ * Posts a native HTML form so the runtime treats the response as a real
+ * download (Content-Disposition: attachment).
+ */
+export function downloadViaProxy(filename: string, mimeType: string, content: string): void {
+  const form = document.createElement('form')
+  form.method = 'POST'
+  form.action = `${BACKEND_URL}/api/datasets/download`
+  form.style.display = 'none'
+
+  const fields: Record<string, string> = {
+    filename,
+    mime_type: mimeType,
+    content,
+  }
+  for (const [name, value] of Object.entries(fields)) {
+    const input = document.createElement('input')
+    input.type = 'hidden'
+    input.name = name
+    input.value = value
+    form.appendChild(input)
+  }
+
+  document.body.appendChild(form)
+  form.submit()
+  document.body.removeChild(form)
+}
+
 export async function testConnection(): Promise<{ status: string }> {
   return request<{ status: string }>('/api/openrouter/test', { method: 'POST' })
 }

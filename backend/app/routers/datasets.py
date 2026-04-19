@@ -8,7 +8,7 @@ import sys
 import uuid
 
 import aiosqlite
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from app.config import settings
@@ -30,6 +30,25 @@ class HfUploadRequest(BaseModel):
 class HfUploadResponse(BaseModel):
     url: str
     repo_name: str
+
+
+_FILENAME_PATTERN = r"^[A-Za-z0-9._\- ]+$"
+
+
+@router.post("/download")
+async def proxy_download(
+    # Form POST (not JSON) so the browser can treat the response as a native
+    # download. pywebview/WebView2 silently discards a programmatic a.click()
+    # on a Blob URL; Content-Disposition on a real POST response is respected.
+    filename: str = Form(..., min_length=1, max_length=200, pattern=_FILENAME_PATTERN),
+    mime_type: str = Form(..., min_length=1, max_length=100),
+    content: str = Form(..., max_length=20_000_000),
+) -> Response:
+    return Response(
+        content=content,
+        media_type=mime_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/open-folder")
@@ -188,14 +207,27 @@ async def merge_datasets(
     # Determine judge_enabled from any source
     any_judge = any(cfg.get("judge_enabled", False) for cfg in configs)
 
+    # Preserve real globals from the source datasets instead of using a
+    # placeholder. Unique values joined with ", " (dict.fromkeys keeps order).
+    source_gen_globals = [cfg.get("model", "") for cfg in configs if cfg.get("model")]
+    merged_gen_global = ", ".join(dict.fromkeys(source_gen_globals)) or "unknown"
+
+    source_judge_globals = [
+        cfg.get("judge_model", "")
+        for cfg in configs
+        if cfg.get("judge_enabled") and cfg.get("judge_model")
+    ]
+    merged_judge_global = ", ".join(dict.fromkeys(source_judge_globals)) or None
+
     merged_config = {
         "categories": merged_categories,
         "total_examples": max(total_examples, 10),
         "temperature": configs[0].get("temperature", 0.7),
         "max_tokens": max(cfg.get("max_tokens", 2048) for cfg in configs),
-        "model": "merged",
+        "model": merged_gen_global,
         "format": dataset_format,
         "judge_enabled": any_judge,
+        "judge_model": merged_judge_global,
         "conversation_turns": max(cfg.get("conversation_turns", 1) for cfg in configs),
         "merged_from": body.job_ids,
     }

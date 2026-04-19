@@ -64,6 +64,83 @@ def _parse_config(row) -> JobConfig:
     return JobConfig.model_validate_json(row["config_json"])
 
 
+def _raw_config(row) -> Optional[dict]:
+    try:
+        return json.loads(row["config_json"])
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _is_merged(raw_cfg: Optional[dict]) -> bool:
+    return bool(raw_cfg and "merged_from" in raw_cfg)
+
+
+async def _fetch_source_configs(
+    db: aiosqlite.Connection,
+    source_ids: list[str],
+) -> dict[str, dict]:
+    """Batch-load config_json for a list of source job IDs, returning {id: raw_config}."""
+    if not source_ids:
+        return {}
+    placeholders = ",".join("?" * len(source_ids))
+    configs: dict[str, dict] = {}
+    async with await db.execute(
+        f"SELECT id, config_json FROM jobs WHERE id IN ({placeholders})",
+        source_ids,
+    ) as cursor:
+        for r in await cursor.fetchall():
+            try:
+                configs[r["id"]] = json.loads(r["config_json"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+    return configs
+
+
+def _unique_models_for_category(
+    cat_name: str,
+    source_configs: list[dict],
+    *,
+    field: str,
+) -> list[str]:
+    """Collect unique `model` or `judge_model` values for a category across source configs.
+
+    - For `field="model"`: falls back to `cfg["model"]` when the category has no
+      explicit per-cat model (i.e. used the source job's global).
+    - For `field="judge_model"`: skips sources where judge was disabled, and
+      falls back to `cfg["judge_model"]` when the category has no explicit
+      per-cat judge model.
+    """
+    seen: dict[str, None] = {}
+    for cfg in source_configs:
+        if field == "judge_model" and not cfg.get("judge_enabled"):
+            continue
+        for cat in cfg.get("categories", []):
+            if cat.get("name") != cat_name:
+                continue
+            per_cat = cat.get(field)
+            if per_cat:
+                seen[per_cat] = None
+            else:
+                # Fallback to the global for this source
+                global_val = cfg.get(field)
+                if global_val:
+                    seen[global_val] = None
+            break
+    return list(seen.keys())
+
+
+def _unique_source_globals(source_configs: list[dict], *, field: str) -> list[str]:
+    """Unique global `model` or `judge_model` values across source configs."""
+    seen: dict[str, None] = {}
+    for cfg in source_configs:
+        if field == "judge_model" and not cfg.get("judge_enabled"):
+            continue
+        val = cfg.get(field)
+        if val:
+            seen[val] = None
+    return list(seen.keys())
+
+
 def _row_to_job_response(row) -> JobResponse:
     config = _parse_config(row)
     progress = _parse_progress(row)
@@ -77,7 +154,10 @@ def _row_to_job_response(row) -> JobResponse:
     )
 
 
-def _row_to_list_item(row) -> JobListItem:
+def _row_to_list_item(
+    row,
+    source_configs_map: Optional[dict[str, dict]] = None,
+) -> JobListItem:
     config = _parse_config(row)
     actual_cost = None
     judge_cost = None
@@ -87,21 +167,38 @@ def _row_to_list_item(row) -> JobListItem:
         judge_cost = progress.judge_cost
     # Real count from examples table — reflects deletions (dedup, manual)
     completed = row["actual_count"]
-    category_models = [cat.model or config.model for cat in config.categories]
-    # Detect merged jobs by checking for merged_from in config_json
-    is_merged = False
-    try:
-        raw_cfg = json.loads(row["config_json"])
-        is_merged = "merged_from" in raw_cfg
-    except (json.JSONDecodeError, TypeError):
-        pass
+
+    raw_cfg = _raw_config(row)
+    is_merged = _is_merged(raw_cfg)
+
+    if is_merged and source_configs_map is not None and raw_cfg:
+        # For merged jobs, derive real globals and per-category models from the
+        # source configs (falls back to whatever was written into this job's
+        # config when a source job has been deleted).
+        source_ids = raw_cfg.get("merged_from", []) or []
+        sources = [source_configs_map[sid] for sid in source_ids if sid in source_configs_map]
+
+        global_models = _unique_source_globals(sources, field="model")
+        display_global = ", ".join(global_models) if global_models else config.model
+
+        category_models: list[str] = []
+        for cat in config.categories:
+            unique = _unique_models_for_category(cat.name, sources, field="model")
+            if unique:
+                category_models.append(", ".join(unique))
+            else:
+                category_models.append(cat.model or display_global)
+    else:
+        display_global = config.model
+        category_models = [cat.model or config.model for cat in config.categories]
+
     return JobListItem(
         id=row["id"],
         status=row["status"],
         total_examples=config.total_examples,
         completed=completed,
         format=config.format,
-        model=config.model,
+        model=display_global,
         category_models=category_models,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -175,6 +272,17 @@ async def create_job(
     )
 
 
+async def _collect_merged_source_ids(rows) -> list[str]:
+    """Extract all unique source IDs referenced by merged jobs in `rows`."""
+    ids: set[str] = set()
+    for row in rows:
+        raw = _raw_config(row)
+        if _is_merged(raw) and raw is not None:
+            for sid in raw.get("merged_from", []) or []:
+                ids.add(sid)
+    return list(ids)
+
+
 @router.get("", response_model=list[JobListItem])
 async def list_jobs(
     db: aiosqlite.Connection = Depends(get_db),
@@ -186,7 +294,9 @@ async def list_jobs(
         "FROM jobs j ORDER BY j.created_at DESC"
     ) as cursor:
         rows = await cursor.fetchall()
-    return [_row_to_list_item(row) for row in rows]
+    source_ids = await _collect_merged_source_ids(rows)
+    source_map = await _fetch_source_configs(db, source_ids)
+    return [_row_to_list_item(row, source_map) for row in rows]
 
 
 @router.get("/resumable", response_model=ResumableJobsResponse)
@@ -202,7 +312,10 @@ async def list_resumable_jobs(
         "ORDER BY j.updated_at DESC"
     ) as cursor:
         rows = await cursor.fetchall()
-    items = [_row_to_list_item(row) for row in rows if row["actual_count"] > 0]
+    filtered = [row for row in rows if row["actual_count"] > 0]
+    source_ids = await _collect_merged_source_ids(filtered)
+    source_map = await _fetch_source_configs(db, source_ids)
+    items = [_row_to_list_item(row, source_map) for row in filtered]
     interrupted_count = sum(1 for i in items if i.status == "interrupted")
     return ResumableJobsResponse(jobs=items, interrupted_count=interrupted_count)
 
@@ -559,8 +672,18 @@ def _compute_score_buckets(scores: list[int]) -> list[ScoreBucket]:
     return buckets
 
 
-def _build_run_summary(row, config: JobConfig, progress: Optional[ProgressJson]) -> RunSummary:
-    """Build RunSummary from a jobs row + parsed config/progress."""
+def _build_run_summary(
+    row,
+    config: JobConfig,
+    progress: Optional[ProgressJson],
+    source_configs: Optional[list[dict]] = None,
+) -> RunSummary:
+    """Build RunSummary from a jobs row + parsed config/progress.
+
+    For merged jobs, caller should pass the list of source job raw configs via
+    `source_configs`; per-category gen/judge model names are then derived as
+    unique-joined strings from the sources instead of the merged placeholder.
+    """
     status = row["status"]
     started_at = row["created_at"]
     is_terminal = status in ("completed", "cancelled", "failed")
@@ -576,30 +699,54 @@ def _build_run_summary(row, config: JobConfig, progress: Optional[ProgressJson])
         except (ValueError, TypeError):
             duration_seconds = None
 
-    # Detect merged jobs by merged_from in config_json
-    is_merged = False
-    merged_from_count = 0
-    try:
-        raw_cfg = json.loads(row["config_json"])
-        merged_from = raw_cfg.get("merged_from")
-        if isinstance(merged_from, list):
-            is_merged = True
-            merged_from_count = len(merged_from)
-    except (json.JSONDecodeError, TypeError):
-        pass
+    raw_cfg = _raw_config(row)
+    is_merged = _is_merged(raw_cfg)
+    merged_from_count = len(raw_cfg.get("merged_from", [])) if is_merged and raw_cfg else 0
 
     progress_cats = progress.categories if progress and progress.categories else {}
+    sources = source_configs or []
 
     cat_infos: list[CategoryRunInfo] = []
     for cat in config.categories:
-        gen_model = cat.model or config.model
+        # Gen model — real sources for merged jobs, config field otherwise
+        if is_merged and sources:
+            unique_gen = _unique_models_for_category(cat.name, sources, field="model")
+            gen_model = ", ".join(unique_gen) if unique_gen else (cat.model or config.model)
+            # Consider "default" when no source had a per-cat model (all relied on their global)
+            gen_is_default = all(
+                (next(
+                    (c.get("model") for c in cfg.get("categories", []) if c.get("name") == cat.name),
+                    None,
+                ) is None)
+                for cfg in sources
+                if any(c.get("name") == cat.name for c in cfg.get("categories", []))
+            )
+        else:
+            gen_model = cat.model or config.model
+            gen_is_default = cat.model is None
+
         gen_provider = cat.provider
-        gen_is_default = cat.model is None
 
         if config.judge_enabled:
-            judge_model = cat.judge_model or config.judge_model or config.model
+            if is_merged and sources:
+                unique_judge = _unique_models_for_category(cat.name, sources, field="judge_model")
+                if unique_judge:
+                    judge_model: Optional[str] = ", ".join(unique_judge)
+                else:
+                    judge_model = cat.judge_model or config.judge_model or config.model
+                judge_is_default = all(
+                    (next(
+                        (c.get("judge_model") for c in cfg.get("categories", []) if c.get("name") == cat.name),
+                        None,
+                    ) is None)
+                    for cfg in sources
+                    if cfg.get("judge_enabled")
+                    and any(c.get("name") == cat.name for c in cfg.get("categories", []))
+                )
+            else:
+                judge_model = cat.judge_model or config.judge_model or config.model
+                judge_is_default = cat.judge_model is None
             judge_provider = cat.judge_provider or config.judge_provider
-            judge_is_default = cat.judge_model is None
         else:
             judge_model = None
             judge_provider = None
@@ -655,7 +802,17 @@ async def get_job_stats(
 
     config = JobConfig.model_validate_json(row["config_json"])
     progress = _parse_progress(row)
-    run_summary = _build_run_summary(row, config, progress)
+
+    # Load source configs when this is a merged job so that Run Summary can
+    # surface the real per-category gen/judge models (not the placeholder).
+    raw_cfg = _raw_config(row)
+    source_configs: list[dict] = []
+    if _is_merged(raw_cfg) and raw_cfg:
+        source_ids = raw_cfg.get("merged_from", []) or []
+        source_map = await _fetch_source_configs(db, source_ids)
+        source_configs = [source_map[sid] for sid in source_ids if sid in source_map]
+
+    run_summary = _build_run_summary(row, config, progress, source_configs)
 
     # Token stats by category
     async with await db.execute(
