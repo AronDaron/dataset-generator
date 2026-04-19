@@ -15,10 +15,13 @@ import { cn } from '@/lib/utils'
 import {
   downloadViaProxy,
   getJobStats,
+  openDatasetsFolder,
   type JobStats,
   type RunSummary,
   type ScoreBucket,
+  type SavedDownload,
 } from '@/lib/api'
+import { FolderOpen } from 'lucide-react'
 import { STATUS_LABELS, getStatusTone } from '@/lib/status-tone'
 
 type ModalState = 'loading' | 'results' | 'error'
@@ -62,11 +65,6 @@ function formatDurationSec(seconds: number | null): string {
   return `${m}m ${s}s`
 }
 
-function downloadFile(content: string, filename: string, mimeType: string) {
-  // Go through the backend proxy so pywebview/WebView2 triggers a native save
-  // dialog. A plain Blob + a.click() is silently dropped in the desktop shell.
-  downloadViaProxy(filename, mimeType, content)
-}
 
 function buildCsv(stats: JobStats): string {
   const lines: string[] = []
@@ -282,12 +280,17 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
   const [state, setState] = useState<ModalState>('loading')
   const [stats, setStats] = useState<JobStats | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
+  const [saved, setSaved] = useState<SavedDownload | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState<'json' | 'csv' | null>(null)
 
   useEffect(() => {
     if (!open) return
     setState('loading')
     setStats(null)
     setErrorMessage('')
+    setSaved(null)
+    setExportError(null)
 
     getJobStats(jobId)
       .then((data) => {
@@ -306,17 +309,48 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
       setState('loading')
       setStats(null)
       setErrorMessage('')
+      setSaved(null)
+      setExportError(null)
     }, 200)
+  }
+
+  async function exportTo(
+    kind: 'json' | 'csv',
+    content: string,
+    filename: string,
+    mimeType: string,
+  ) {
+    setExporting(kind)
+    setExportError(null)
+    try {
+      const result = await downloadViaProxy(filename, mimeType, content)
+      setSaved(result)
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Failed to save file')
+      setSaved(null)
+    } finally {
+      setExporting(null)
+    }
   }
 
   function handleExportJson() {
     if (!stats) return
-    downloadFile(JSON.stringify(stats, null, 2), `quality-report-${jobId.slice(0, 8)}.json`, 'application/json')
+    exportTo(
+      'json',
+      JSON.stringify(stats, null, 2),
+      `quality-report-${jobId.slice(0, 8)}.json`,
+      'application/json',
+    )
   }
 
   function handleExportCsv() {
     if (!stats) return
-    downloadFile(buildCsv(stats), `quality-report-${jobId.slice(0, 8)}.csv`, 'text/csv')
+    exportTo(
+      'csv',
+      buildCsv(stats),
+      `quality-report-${jobId.slice(0, 8)}.csv`,
+      'text/csv',
+    )
   }
 
   const shortId = jobId.slice(0, 8)
@@ -474,17 +508,60 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
             )}
           </div>
 
+          {/* Saved / Export error banner */}
+          {(saved || exportError) && state === 'results' && (
+            <div className="border-t border-border px-6 py-3">
+              {saved && (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-transparent bg-ok/10 px-3 py-2 text-sm text-ok">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] uppercase tracking-widest font-semibold">Saved</div>
+                    <div className="truncate font-mono text-xs text-text-1" title={saved.path}>
+                      {saved.path}
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5 border-ok/40 text-ok hover:border-ok/60"
+                    onClick={() => { openDatasetsFolder().catch(() => {}) }}
+                  >
+                    <FolderOpen className="size-3.5" />
+                    Open folder
+                  </Button>
+                </div>
+              )}
+              {exportError && (
+                <div className="flex items-start gap-2 rounded-lg border border-transparent bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                  <span className="truncate">{exportError}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Footer */}
           <div className="flex items-center justify-between border-t border-border px-6 py-4">
             <div className="flex items-center gap-2">
               {state === 'results' && stats && (
                 <>
-                  <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExportJson}>
-                    <Download className="size-3.5" />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={handleExportJson}
+                    disabled={exporting !== null}
+                  >
+                    {exporting === 'json' ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
                     JSON
                   </Button>
-                  <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExportCsv}>
-                    <Download className="size-3.5" />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={handleExportCsv}
+                    disabled={exporting !== null}
+                  >
+                    {exporting === 'csv' ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
                     CSV
                   </Button>
                 </>

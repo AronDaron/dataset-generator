@@ -8,7 +8,7 @@ import sys
 import uuid
 
 import aiosqlite
-from fastapi import APIRouter, Depends, Form, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.config import settings
@@ -32,22 +32,31 @@ class HfUploadResponse(BaseModel):
     repo_name: str
 
 
-_FILENAME_PATTERN = r"^[A-Za-z0-9._\- ]+$"
+class DownloadRequest(BaseModel):
+    # Save-to-disk proxy. Neither a.click() on a Blob nor a form-POST with
+    # Content-Disposition triggers a download inside pywebview/WebView2 (no
+    # default download handler), so we write the file ourselves and hand the
+    # frontend a path it can reveal via POST /api/datasets/open-folder.
+    filename: str = Field(..., min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._\- ]+$")
+    mime_type: str = Field(..., min_length=1, max_length=100)
+    content: str = Field(..., max_length=20_000_000)
 
 
-@router.post("/download")
-async def proxy_download(
-    # Form POST (not JSON) so the browser can treat the response as a native
-    # download. pywebview/WebView2 silently discards a programmatic a.click()
-    # on a Blob URL; Content-Disposition on a real POST response is respected.
-    filename: str = Form(..., min_length=1, max_length=200, pattern=_FILENAME_PATTERN),
-    mime_type: str = Form(..., min_length=1, max_length=100),
-    content: str = Form(..., max_length=20_000_000),
-) -> Response:
-    return Response(
-        content=content,
-        media_type=mime_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+class DownloadResponse(BaseModel):
+    path: str
+    filename: str
+    directory: str
+
+
+@router.post("/download", response_model=DownloadResponse)
+async def proxy_download(body: DownloadRequest) -> DownloadResponse:
+    settings.datasets_dir.mkdir(parents=True, exist_ok=True)
+    target = settings.datasets_dir / body.filename
+    target.write_text(body.content, encoding="utf-8")
+    return DownloadResponse(
+        path=str(target),
+        filename=body.filename,
+        directory=str(settings.datasets_dir),
     )
 
 
