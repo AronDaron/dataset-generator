@@ -22,10 +22,24 @@ os.environ.setdefault("DATASET_GEN_DESKTOP", "1")
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "backend"))
 
-# Route tiktoken's BPE cache into the user's data dir (writable) instead of
-# defaulting into sys._MEIPASS (read-only in frozen builds).
 from app.config import get_app_data_dir  # noqa: E402
 
+# PyInstaller windowed build on Windows (console=False) sets sys.stdout and
+# sys.stderr to None. Uvicorn's default log formatter calls sys.stdout.isatty(),
+# which crashes on None. Redirect them to a log file in the user's data dir so
+# crashes are still recoverable, or devnull if opening a log file fails.
+if sys.stdout is None or sys.stderr is None:
+    try:
+        _log_fh = open(get_app_data_dir() / "app.log", "a", buffering=1, encoding="utf-8")
+    except Exception:
+        _log_fh = open(os.devnull, "w", encoding="utf-8")
+    if sys.stdout is None:
+        sys.stdout = _log_fh
+    if sys.stderr is None:
+        sys.stderr = _log_fh
+
+# Route tiktoken's BPE cache into the user's data dir (writable) instead of
+# defaulting into sys._MEIPASS (read-only in frozen builds).
 os.environ.setdefault(
     "TIKTOKEN_CACHE_DIR", str(get_app_data_dir() / "tiktoken_cache")
 )
