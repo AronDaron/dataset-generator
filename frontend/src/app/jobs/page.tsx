@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { AlertCircle, BarChart3, ChevronLeft, Copy, Database } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -15,6 +15,7 @@ import {
 import { parseTurnsFromContent, normaliseRole, type Turn } from '@/lib/example-utils'
 import { DeduplicateModal } from '@/components/jobs/DeduplicateModal'
 import { QualityReportModal } from '@/components/jobs/QualityReportModal'
+import { FormattedContent } from '@/components/ui/formatted-content'
 
 // ---- Helpers ----
 
@@ -49,9 +50,6 @@ function scoreBg(score: number): string {
   if (score >= 60) return 'border-transparent bg-warn/10'
   return 'border-transparent bg-destructive/10'
 }
-
-// FormattedContent extracted to shared component
-import { FormattedContent } from '@/components/ui/formatted-content'
 
 // ---- TurnBlock ----
 
@@ -159,13 +157,13 @@ function ExampleListItem({ example, index, isSelected, onClick }: ExampleListIte
   )
 }
 
-// ---- Main page ----
+// ---- Inner content (uses useSearchParams — must be inside <Suspense>) ----
 
 const PAGE_LIMIT = 50
 
-export default function JobDetailPage() {
-  const params = useParams()
-  const jobId = params.id as string
+function JobDetailContent() {
+  const searchParams = useSearchParams()
+  const jobId = searchParams.get('id')
 
   const [job, setJob] = useState<JobDetail | null>(null)
   const [examples, setExamples] = useState<ExampleItem[]>([])
@@ -181,8 +179,13 @@ export default function JobDetailPage() {
   const detailPanelRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
-    if (!jobId) return
+    if (!jobId) {
+      setLoadingJob(false)
+      setErrorJob('Missing job id. Open a job from the History page.')
+      return
+    }
     setLoadingJob(true)
+    setErrorJob(null)
 
     Promise.all([getJob(jobId), getJobExamples(jobId, PAGE_LIMIT, 0)])
       .then(([jobData, exData]) => {
@@ -197,6 +200,7 @@ export default function JobDetailPage() {
   }, [jobId])
 
   async function handleLoadMore() {
+    if (!jobId) return
     setLoadingMore(true)
     try {
       const more = await getJobExamples(jobId, PAGE_LIMIT, offset)
@@ -397,24 +401,47 @@ export default function JobDetailPage() {
           </section>
         </div>
       )}
-      <DeduplicateModal
-        open={dedupOpen}
-        onClose={() => setDedupOpen(false)}
-        jobId={jobId}
-        onExamplesChanged={() => {
-          getJobExamples(jobId, PAGE_LIMIT, 0).then((data) => {
-            setExamples(data)
-            setOffset(PAGE_LIMIT)
-            setHasMore(data.length === PAGE_LIMIT)
-            setSelectedExample(data[0] ?? null)
-          })
-        }}
-      />
-      <QualityReportModal
-        open={reportOpen}
-        onClose={() => setReportOpen(false)}
-        jobId={jobId}
-      />
+      {jobId && (
+        <>
+          <DeduplicateModal
+            open={dedupOpen}
+            onClose={() => setDedupOpen(false)}
+            jobId={jobId}
+            onExamplesChanged={() => {
+              getJobExamples(jobId, PAGE_LIMIT, 0).then((data) => {
+                setExamples(data)
+                setOffset(PAGE_LIMIT)
+                setHasMore(data.length === PAGE_LIMIT)
+                setSelectedExample(data[0] ?? null)
+              })
+            }}
+          />
+          <QualityReportModal
+            open={reportOpen}
+            onClose={() => setReportOpen(false)}
+            jobId={jobId}
+          />
+        </>
+      )}
     </main>
+  )
+}
+
+// ---- Page wrapper — <Suspense> required by useSearchParams() in App Router ----
+
+export default function JobDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-transparent">
+          <div className="mx-auto flex h-[calc(100vh-3.5rem)] max-w-[1800px] gap-0 px-8 py-6">
+            <div className="w-72 shrink-0 animate-pulse rounded-xl bg-bg-2" />
+            <div className="ml-4 flex-1 animate-pulse rounded-xl bg-bg-2" />
+          </div>
+        </main>
+      }
+    >
+      <JobDetailContent />
+    </Suspense>
   )
 }

@@ -176,7 +176,7 @@ export function NotificationsPopover({ jobs, hasNew, onOpen, onResumed, onDismis
                           )}
                         </button>
                         <Link
-                          href={`/jobs/${job.id}`}
+                          href={`/jobs/?id=${job.id}`}
                           className={cn(
                             'inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-text-1',
                             'transition-colors hover:border-line-strong hover:bg-muted',

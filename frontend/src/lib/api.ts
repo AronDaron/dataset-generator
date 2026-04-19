@@ -1,6 +1,11 @@
 // All fetch wrappers for the backend API.
 // Every function throws an Error on non-ok responses.
 
+// In desktop/static-export mode the frontend is served from the same origin
+// as the API, so an empty prefix yields relative URLs. In dev (`npm run dev`)
+// set `NEXT_PUBLIC_BACKEND_URL=http://localhost:8000` in frontend/.env.local.
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? ''
+
 export interface ApiKeyStatus {
   has_key: boolean
   key_preview: string | null
@@ -73,7 +78,7 @@ async function request<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(path, options)
+  const res = await fetch(`${BACKEND_URL}${path}`, options)
   if (!res.ok) {
     let message = `HTTP ${res.status}`
     try {
@@ -231,7 +236,7 @@ export async function getModelEndpoints(modelId: string): Promise<ModelEndpoint[
 // ---- New API functions ----
 
 export async function cancelJob(jobId: string): Promise<void> {
-  const res = await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' })
+  const res = await fetch(`${BACKEND_URL}/api/jobs/${jobId}`, { method: 'DELETE' })
   // 409 = already terminal — swallow silently
   if (!res.ok && res.status !== 409) {
     const text = await res.text().catch(() => `HTTP ${res.status}`)

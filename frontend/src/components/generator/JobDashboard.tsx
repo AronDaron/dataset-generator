@@ -1,6 +1,6 @@
 'use client'
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000'
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? ''
 
 import { useEffect, useState } from 'react'
 import { AlertCircle, FolderOpen, RotateCcw, StopCircle, BarChart3 } from 'lucide-react'

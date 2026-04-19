@@ -245,7 +245,7 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
           </Button>
         )}
         {job.completed > 0 && (
-          <Link href={`/jobs/${job.id}`}>
+          <Link href={`/jobs/?id=${job.id}`}>
             <Button variant="outline" size="sm">
               <Eye className="size-3.5" />
               View
@@ -281,7 +281,7 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
         )}
         {dedupState === 'done' && (
           dedupCount > 0 ? (
-            <Link href={`/jobs/${job.id}`}>
+            <Link href={`/jobs/?id=${job.id}`}>
               <Button variant="outline" size="sm" className="gap-1.5 border-warn/40 text-warn hover:border-warn/60">
                 <Copy className="size-3.5" />
                 {dedupCount} duplicate{dedupCount !== 1 ? 's' : ''} found
@@ -602,7 +602,7 @@ export default function HistoryPage() {
           <div className="flex items-center gap-2 rounded-xl border border-transparent bg-ok/10 px-5 py-3 text-sm text-ok">
             <CheckCircle2 className="size-4 shrink-0" />
             Merged {mergeResult.total_examples.toLocaleString('en-US')} examples from {mergeResult.source_jobs} jobs
-            <Link href={`/jobs/${mergeResult.job_id}`}>
+            <Link href={`/jobs?id=${mergeResult.job_id}`}>
               <Button variant="outline" size="sm" className="ml-2 h-7 gap-1 border-ok/40 text-ok hover:border-ok/60">
                 <Eye className="size-3" />
                 View

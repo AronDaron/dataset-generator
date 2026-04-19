@@ -14,6 +14,14 @@ def get_app_data_dir() -> Path:
     return base
 
 
+def get_frontend_dir() -> Path:
+    # PyInstaller onedir build: bundled assets live under sys._MEIPASS
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS) / "out"  # type: ignore[attr-defined]
+    # Dev / python desktop.py: backend/app/config.py -> parents[2] is repo root
+    return Path(__file__).resolve().parents[2] / "frontend" / "out"
+
+
 @dataclass
 class Settings:
     # CORS origins for development
@@ -26,6 +34,7 @@ class Settings:
     )
     db_path: Path = field(default_factory=lambda: get_app_data_dir() / "database.sqlite")
     datasets_dir: Path = field(default_factory=lambda: get_app_data_dir() / "datasets")
+    frontend_dir: Path = field(default_factory=get_frontend_dir)
 
 
 settings = Settings()
