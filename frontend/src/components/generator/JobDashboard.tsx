@@ -14,6 +14,7 @@ import {
 } from '@/lib/api'
 import { QualityReportModal } from '@/components/jobs/QualityReportModal'
 import { StatusLegendPopover } from '@/components/jobs/StatusLegendPopover'
+import { ActivityLog } from './ActivityLog'
 import { STATUS_LABELS, STAGE_LABELS, getStatusTone } from '@/lib/status-tone'
 
 const TIMING_KEY = (id: string) => `jobTiming:${id}`
@@ -144,6 +145,7 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
   const status = payload?.status ?? 'pending'
   const progress = payload?.progress ?? null
   const examples = payload?.examples ?? []
+  const recentEvents = payload?.recent_events ?? []
   const isTerminal = ['completed', 'cancelled', 'failed'].includes(status)
   const isRunning  = ['pending', 'running', 'cancelling'].includes(status)
   const globalPct  = progress
@@ -238,9 +240,11 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
           {/* Chips — uniform grid 3 cols */}
           <div className="mt-4 grid grid-cols-3 gap-1.5 border-t border-border pt-4">
             <StatChip label="generated" value={progress.completed} />
-            {progress.skipped > 0 && (
-              <StatChip label="skipped" value={progress.skipped} variant="warn" />
-            )}
+            <StatChip
+              label="skipped"
+              value={progress.skipped}
+              variant={progress.skipped > 0 ? 'warn' : 'default'}
+            />
             {progress.judge_stats && (
               <>
                 <StatChip label="evaluated" value={progress.judge_stats.evaluated} />
@@ -358,6 +362,11 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80 }: JobDashboa
             ))}
           </div>
         </div>
+      )}
+
+      {/* Activity log — live event feed */}
+      {(isRunning || recentEvents.length > 0) && (
+        <ActivityLog events={recentEvents} />
       )}
 
       {/* Loading placeholder */}

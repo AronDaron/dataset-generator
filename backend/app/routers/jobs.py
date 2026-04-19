@@ -35,6 +35,7 @@ from app.models.jobs import (
     TokenStatsByCategory,
 )
 from app.services.dedup_service import find_duplicates
+from app.services.event_log import clear_events, get_events
 from app.services.export_service import export_job
 from app.services.job_runner import cancel_job, distribute_examples, run_job
 
@@ -224,6 +225,7 @@ async def delete_job_endpoint(
         await db.execute("DELETE FROM examples WHERE job_id = ?", (job_id,))
         await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         await db.commit()
+        clear_events(job_id)
         jsonl_path = settings.datasets_dir / f"{job_id}.jsonl"
         logger.info("Deleting JSONL file: %s (exists=%s)", jsonl_path, jsonl_path.exists())
         try:
@@ -288,10 +290,13 @@ async def _stream_job_progress(
             for r in ex_rows
         ]
 
+        recent_events = [e.model_dump() for e in get_events(job_id)]
+
         payload = json.dumps({
             "status": status,
             "progress": progress.model_dump() if progress else None,
             "examples": examples,
+            "recent_events": recent_events,
         })
 
         is_terminal = status in TERMINAL_STATES

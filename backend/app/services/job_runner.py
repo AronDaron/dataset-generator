@@ -12,6 +12,7 @@ import aiosqlite
 
 from app.models.jobs import CategoryConfig, CategoryProgress, JobConfig, JudgeStats, ProgressJson
 from app.utils import now_iso as _now_iso
+from app.services.event_log import log_event
 from app.services.export_service import export_job
 from app.services.openrouter_client import OpenRouterError, chat_completion
 from app.services.prompt_builder import (
@@ -213,6 +214,8 @@ async def _generate_and_validate_example(
     retry_cooldown: int = 15,
     provider: str | None = None,
     output_format: str = "sharegpt",
+    job_id: str | None = None,
+    category: str | None = None,
 ) -> tuple[dict, int, dict] | None:
     """
     Call LLM, parse JSON, validate structure and token count.
@@ -241,6 +244,12 @@ async def _generate_and_validate_example(
                 "[gen-fail] API error: model=%s provider=%s attempt=%d status=%s body=%.300s",
                 model, provider_tag, attempt + 1, exc.status_code, str(exc)[:300],
             )
+            if job_id:
+                log_event(
+                    job_id, "generation_api_error",
+                    category=category, attempt=attempt + 1,
+                    model=model, provider=provider_tag, status_code=exc.status_code,
+                )
             if attempt == 0:
                 continue
             return None
@@ -249,6 +258,12 @@ async def _generate_and_validate_example(
                 "[gen-fail] unexpected exception: model=%s provider=%s attempt=%d err=%r",
                 model, provider_tag, attempt + 1, exc,
             )
+            if job_id:
+                log_event(
+                    job_id, "generation_unexpected_error",
+                    category=category, attempt=attempt + 1,
+                    model=model, provider=provider_tag, error_type=type(exc).__name__,
+                )
             if attempt == 0:
                 continue
             return None
@@ -262,6 +277,13 @@ async def _generate_and_validate_example(
                 "[gen-fail] empty content: model=%s provider=%s attempt=%d finish=%s has_reasoning=%s",
                 model, provider_tag, attempt + 1, finish_reason, has_reasoning,
             )
+            if job_id:
+                log_event(
+                    job_id, "generation_empty_response",
+                    category=category, attempt=attempt + 1,
+                    model=model, provider=provider_tag,
+                    finish_reason=finish_reason, has_reasoning=has_reasoning,
+                )
             if attempt == 0:
                 continue
             return None
@@ -273,6 +295,12 @@ async def _generate_and_validate_example(
                 "[gen-fail] JSON parse failed: model=%s provider=%s attempt=%d err=%s raw=%.300s",
                 model, provider_tag, attempt + 1, exc, raw,
             )
+            if job_id:
+                log_event(
+                    job_id, "generation_json_parse_error",
+                    category=category, attempt=attempt + 1,
+                    model=model, provider=provider_tag,
+                )
             if attempt == 0:
                 continue
             return None
@@ -284,6 +312,12 @@ async def _generate_and_validate_example(
                 list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__,
                 json.dumps(parsed, ensure_ascii=False)[:300],
             )
+            if job_id:
+                log_event(
+                    job_id, "generation_invalid_structure",
+                    category=category, attempt=attempt + 1,
+                    model=model, provider=provider_tag, format=output_format,
+                )
             if attempt == 0:
                 continue
             return None
@@ -296,6 +330,13 @@ async def _generate_and_validate_example(
             "[gen-fail] over token budget: model=%s provider=%s attempt=%d tokens=%d max=%d",
             model, provider_tag, attempt + 1, token_count, max_tokens,
         )
+        if job_id:
+            log_event(
+                job_id, "generation_over_token_budget",
+                category=category, attempt=attempt + 1,
+                model=model, provider=provider_tag,
+                tokens=token_count, max_tokens=max_tokens,
+            )
         # Over limit — retry with conciseness hint
 
     return None
@@ -361,11 +402,14 @@ async def _generate_topics(
     cat: CategoryConfig,
     count: int,
     overhead: dict | None = None,
+    job_id: str | None = None,
 ) -> list[str]:
     logger.info(
         "[_generate_topics] category='%s' requested=%d (TOPIC_BATCH_SIZE=%d)",
         cat.name, count, TOPIC_BATCH_SIZE,
     )
+    if job_id:
+        log_event(job_id, "topic_generation_start", category=cat.name, count=count)
     messages = build_topic_generation_prompt(cat.name, cat.description, count)
     effective_model = cat.model or config.model
 
@@ -503,6 +547,7 @@ async def _generate_example(
     outline: list[str],
     model: str,
     provider: str | None = None,
+    job_id: str | None = None,
 ) -> tuple[dict, int] | None:
     messages = build_example_generation_prompt(
         category_name=cat.name,
@@ -521,6 +566,8 @@ async def _generate_example(
         retry_cooldown=config.retry_cooldown,
         provider=provider,
         output_format=config.format,
+        job_id=job_id,
+        category=cat.name,
     )
 
 
@@ -568,7 +615,11 @@ async def _run_category(
                 "[job %s] Topics exhausted for '%s', generating %d more to reach target",
                 job_id, cat.name, needed,
             )
-            extra = await _generate_topics(api_key, config, cat, min(TOPIC_BATCH_SIZE, needed), overhead=overhead)
+            log_event(job_id, "topics_exhausted_regenerating", category=cat.name, needed=needed)
+            extra = await _generate_topics(
+                api_key, config, cat, min(TOPIC_BATCH_SIZE, needed),
+                overhead=overhead, job_id=job_id,
+            )
             topic_queue.extend(extra)
             await asyncio.sleep(delay)
             if not topic_queue:
@@ -576,6 +627,7 @@ async def _run_category(
                     "[job %s] Could not generate more topics for '%s' — stopping",
                     job_id, cat.name,
                 )
+                log_event(job_id, "topics_generation_failed", category=cat.name)
                 break
 
         total_attempts += 1
@@ -594,7 +646,8 @@ async def _run_category(
 
         async with _gen_semaphore:
             result = await _generate_example(
-                api_key, config, cat, topic, outline, effective_model, effective_provider
+                api_key, config, cat, topic, outline, effective_model, effective_provider,
+                job_id=job_id,
             )
         await asyncio.sleep(delay)
 
@@ -603,6 +656,11 @@ async def _run_category(
                 "[job %s] Generation failed for '%s' (category '%s') — "
                 "retrying with next topic. Attempt %d/%d",
                 job_id, topic, cat.name, total_attempts, max_attempts,
+            )
+            log_event(
+                job_id, "generation_failed_retrying",
+                category=cat.name, topic=topic,
+                attempt=total_attempts, max_attempts=max_attempts,
             )
             progress.categories[cat.name].skipped += 1
             progress.skipped += 1
@@ -644,11 +702,21 @@ async def _run_category(
                             "[job %s] Judge returned no score for '%s' — retry %d/%d",
                             job_id, topic, attempt + 1, MAX_JUDGE_RETRIES,
                         )
+                        log_event(
+                            job_id, "judge_no_score_retry",
+                            category=cat.name, topic=topic,
+                            attempt=attempt + 1, max_retries=MAX_JUDGE_RETRIES,
+                        )
                         continue
                     # All retries exhausted — skip this example
                     logger.warning(
                         "[job %s] Judge failed all %d attempts for '%s' — skipping",
                         job_id, MAX_JUDGE_RETRIES, topic,
+                    )
+                    log_event(
+                        job_id, "judge_failed_all_retries",
+                        category=cat.name, topic=topic,
+                        max_retries=MAX_JUDGE_RETRIES,
                     )
                     progress.judge_stats.rejected += 1
                     break
@@ -666,6 +734,12 @@ async def _run_category(
                     "[job %s] Judge rejected '%s' (score=%s < %d) — retrying with next topic",
                     job_id, topic, judge_score, config.judge_threshold,
                 )
+                if judge_score is not None:
+                    log_event(
+                        job_id, "judge_rejected_below_threshold",
+                        category=cat.name, topic=topic,
+                        score=judge_score, threshold=config.judge_threshold,
+                    )
                 progress.categories[cat.name].skipped += 1
                 progress.skipped += 1
                 save_this = False
@@ -682,6 +756,13 @@ async def _run_category(
             )
             progress.categories[cat.name].completed += 1
             progress.completed += 1
+            if judge_score is not None:
+                log_event(
+                    job_id, "example_accepted",
+                    category=cat.name, score=judge_score,
+                )
+            else:
+                log_event(job_id, "example_accepted_no_judge", category=cat.name)
 
         await _update_progress(db, job_id, "running", progress)
 
@@ -691,6 +772,12 @@ async def _run_category(
             "achieved %d/%d examples",
             job_id, cat.name, max_attempts,
             progress.categories[cat.name].completed, cat_target,
+        )
+        log_event(
+            job_id, "category_attempt_limit_reached",
+            category=cat.name,
+            completed=progress.categories[cat.name].completed,
+            target=cat_target,
         )
 
 
@@ -742,7 +829,10 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
             progress.current_category = cat.name
             await _update_progress(db, job_id, "running", progress)
 
-            topics = await _generate_topics(api_key, config, cat, min(TOPIC_BATCH_SIZE, count), overhead=overhead)
+            topics = await _generate_topics(
+                api_key, config, cat, min(TOPIC_BATCH_SIZE, count),
+                overhead=overhead, job_id=job_id,
+            )
             all_topics[cat.name] = topics
             await asyncio.sleep(delay)
 
@@ -772,6 +862,7 @@ async def run_job(job_id: str, config: JobConfig, api_key: str) -> None:
             "[job %s] Completed — generated: %d, skipped: %d (total requested: %d)",
             job_id, progress.completed, progress.skipped, progress.total_examples,
         )
+        log_event(job_id, "job_completed", completed=progress.completed)
 
         # Actual cost — per-model pricing from real OpenRouter usage
         cat_prices = {

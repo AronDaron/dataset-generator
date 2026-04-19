@@ -190,10 +190,23 @@ export interface SSEExample {
   model: string
 }
 
+export type ActivityLevel = 'info' | 'warn' | 'error'
+
+export interface ActivityEvent {
+  seq: number
+  ts: string
+  level: ActivityLevel
+  kind: string
+  message: string
+  category: string | null
+  meta: Record<string, unknown>
+}
+
 export interface SSEProgressPayload {
   status: string
   progress: ProgressJson | null
   examples: SSEExample[]
+  recent_events?: ActivityEvent[]
 }
 
 export interface ModelEndpoint {
