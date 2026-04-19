@@ -22,9 +22,16 @@ os.environ.setdefault("DATASET_GEN_DESKTOP", "1")
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "backend"))
 
+# Route tiktoken's BPE cache into the user's data dir (writable) instead of
+# defaulting into sys._MEIPASS (read-only in frozen builds).
+from app.config import get_app_data_dir  # noqa: E402
+
+os.environ.setdefault(
+    "TIKTOKEN_CACHE_DIR", str(get_app_data_dir() / "tiktoken_cache")
+)
+
 import httpx  # noqa: E402
 import uvicorn  # noqa: E402
-import webview  # noqa: E402
 
 from app.main import app  # noqa: E402  (after env + sys.path setup)
 
@@ -74,6 +81,20 @@ def main() -> None:
 
     if not wait_for_ready(port):
         raise RuntimeError(f"Backend did not become healthy within 10s on :{port}")
+
+    # Headless mode for CI / sanity-check on machines without a GUI stack.
+    # Deliberately NOT imported webview here — on headless Linux (no GTK/Qt)
+    # `import webview` itself can fail, so we defer it to GUI mode only.
+    if os.environ.get("DATASET_GEN_HEADLESS") == "1":
+        print(f"[headless] FastAPI ready on http://127.0.0.1:{port}", flush=True)
+        try:
+            thread.join()
+        except KeyboardInterrupt:
+            server.should_exit = True
+            thread.join(timeout=5)
+        return
+
+    import webview  # noqa: PLC0415 — deferred until we know we need a GUI
 
     window = webview.create_window(
         "Dataset Generator",

@@ -53,3 +53,14 @@ Testy.md
 
 # Artefakty pip (przypadkowe pliki typu =1.26.0)
 backend/=*
+
+# PyInstaller (Faza 7)
+dist/
+build/
+docs/assets/logo.ico
+DatasetGenerator-*.zip
+DatasetGenerator-*.tar.gz
+
+# AppImage build (Faza 7.1)
+AppDir/
+*.AppImage

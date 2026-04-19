@@ -7,3 +7,7 @@ tiktoken>=0.7.0
 huggingface_hub>=0.23.0
 numpy>=1.26.0
 pywebview>=5.0
+
+# Build-time only (Faza 7) — nie importowane przez aplikację w runtime
+pyinstaller>=6.0
+pillow>=10.0
