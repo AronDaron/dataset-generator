@@ -1,4 +1,4 @@
-# Dataset Generator — Windows build script (Faza 7)
+# Dataset Generator - Windows build script (Faza 7)
 #
 # Usage (PowerShell in repo root):
 #   .\scripts\build_windows.ps1
@@ -6,7 +6,7 @@
 # If execution policy blocks: powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
 #
 # Produces: DatasetGenerator-windows-x64.zip in the repo root.
-# First run: ~8–12 minutes (npm ci + venv + PyInstaller).
+# First run: ~8-12 minutes (npm ci + venv + PyInstaller).
 # Repeat runs: ~2 minutes.
 
 $ErrorActionPreference = "Stop"
@@ -14,7 +14,7 @@ $ROOT = Split-Path -Parent $PSScriptRoot
 Set-Location $ROOT
 
 Write-Host ""
-Write-Host "=== Dataset Generator — Windows build ===" -ForegroundColor Cyan
+Write-Host "=== Dataset Generator - Windows build ===" -ForegroundColor Cyan
 Write-Host ""
 
 # --- 1/6 Frontend static export ---
@@ -33,7 +33,7 @@ if (-not (Test-Path "frontend\out")) { throw "frontend\out was not produced" }
 Write-Host "[2/6] Preparing Python venv..." -ForegroundColor Yellow
 if (-not (Test-Path "backend\venv")) {
     python -m venv backend\venv
-    if ($LASTEXITCODE -ne 0) { throw "python -m venv failed — is Python on PATH?" }
+    if ($LASTEXITCODE -ne 0) { throw "python -m venv failed - is Python on PATH?" }
 }
 $pip = "backend\venv\Scripts\pip.exe"
 $py  = "backend\venv\Scripts\python.exe"
@@ -41,7 +41,7 @@ $py  = "backend\venv\Scripts\python.exe"
 & $pip install -r backend\requirements.txt --quiet
 if ($LASTEXITCODE -ne 0) { throw "pip install -r requirements failed" }
 
-# --- 3/6 Icon (PNG → ICO) ---
+# --- 3/6 Icon (PNG -> ICO) ---
 Write-Host "[3/6] Generating ICO from logo.png..." -ForegroundColor Yellow
 & $py scripts\prepare_icon.py
 if ($LASTEXITCODE -ne 0) { throw "prepare_icon.py failed" }
@@ -73,5 +73,5 @@ Write-Host ""
 Write-Host "To test:" -ForegroundColor Cyan
 Write-Host "  1. Extract the ZIP somewhere (e.g. C:\Temp\DG\)"
 Write-Host "  2. Double-click DatasetGenerator.exe inside the extracted folder"
-Write-Host "  3. First run: SmartScreen may warn — 'More info' -> 'Run anyway'"
+Write-Host "  3. First run: SmartScreen may warn - 'More info' -> 'Run anyway'"
 Write-Host ""
