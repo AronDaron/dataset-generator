@@ -68,3 +68,23 @@ AppDir/
 # Wewnętrzna instrukcja buildu Linux (nie commitujemy)
 kompilacja_linux.md
 verify_linux_build.sh
+
+# Python test/lint caches
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# TypeScript build info
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Editor backups / swap / local history
+*.bak
+*.swp
+*.swo
+*~
+.history/
+
+# Temp
+*.tmp
