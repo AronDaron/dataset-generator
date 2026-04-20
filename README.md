@@ -81,7 +81,6 @@ https://github.com/user-attachments/assets/73f43f6c-a5b8-47c9-8de2-8e016e57cfef
 > Actively developed — bug reports and feature requests welcome via [Issues](../../issues).
 > General questions and ideas → [Discussions](../../discussions).
 
-<img src="docs/assets/feature-pipeline.png" alt="Plan-then-Execute pipeline" width="700" />
 
 - **Plan-then-Execute pipeline** — three stages (topics → outlines → examples), each can use a different model
 - **Per-category configuration** — any number of categories with custom proportions, descriptions, and dedicated models
@@ -95,7 +94,6 @@ https://github.com/user-attachments/assets/73f43f6c-a5b8-47c9-8de2-8e016e57cfef
 - **Dataset history + in-app preview** — turn-by-turn rendering, code highlighting, dataset merging
 - **HuggingFace Hub upload** — one-click push to your repo
 
-<img src="docs/assets/feature-dashboard.gif" alt="Live dashboard" width="700" />
 
 ---
 
