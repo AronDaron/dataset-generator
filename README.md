@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/logo.png" alt="Dataset Generator" width="160" />
+<img src="docs/assets/logo.png" alt="Dataset Generator" width="220" />
 
 # Dataset Generator
 
