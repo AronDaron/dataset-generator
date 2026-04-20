@@ -12,6 +12,7 @@ Pick categories, set proportions, click Generate — the app handles topic plann
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)
 ![Node](https://img.shields.io/badge/node-20%2B-339933?style=flat-square)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-green?style=flat-square)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/arondaron)
 
 </div>
 
