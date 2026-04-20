@@ -185,6 +185,9 @@ Backend on `http://localhost:8000`, frontend on `http://localhost:3000`. Open Se
 **Can I use local models (Ollama, LM Studio)?**
 Not currently — the pipeline talks to OpenRouter. Adding a local / OpenAI-compatible endpoint is on the roadmap; open an Issue if you need it sooner.
 
+**Is Linux fully supported?**
+Yes — the app ships AppImage and tar.gz builds and all features work cross-platform. That said, day-to-day development and manual testing happens on Windows; Linux builds are verified with automated smoke tests but don't get the same amount of hands-on time. If something feels off on Linux, please open an Issue — I'll take a look.
+
 **How much does it cost to generate 1000 examples?**
 Depends on model choice and turn count. With open-source models available on OpenRouter (Llama 3.x, Qwen 2.5, DeepSeek, Mistral) expect single-digit dollars per 1000 multi-turn examples — often under $1 with the cheapest options. The app pulls real token usage from every response, so the UI shows you the exact cost live as it runs.
 
