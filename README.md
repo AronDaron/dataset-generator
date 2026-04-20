@@ -1,6 +1,5 @@
 <div align="center">
-<img src="docs/assets/logo.png" alt="Dataset Generator" width="220" />
-<h1>Dataset Generator</h1>
+<img src="docs/assets/logo.png" alt="Dataset Generator" width="260" />
 
 **A no-code desktop app for generating high-quality synthetic datasets to fine-tune LLMs.**
 
