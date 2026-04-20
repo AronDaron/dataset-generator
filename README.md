@@ -67,9 +67,11 @@ selection — your mileage may vary.</sub>
 ## Demo
 
 <div align="center">
-<img src="docs/assets/demo.gif" alt="Dataset Generator — full workflow" width="900" />
-<br />
-<sub>Generating 50 examples across 4 categories in ShareGPT format with the LLM Judge enabled.</sub>
+
+https://github.com/user-attachments/assets/73f43f6c-a5b8-47c9-8de2-8e016e57cfef
+
+<sub>Generating fast 10 examples across 2 categories in ShareGPT format with the LLM Judge enabled.</sub>
+
 </div>
 
 ---
