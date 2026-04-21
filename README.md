@@ -13,8 +13,6 @@ Pick categories, set proportions, click Generate — the app handles topic plann
 [![Node](https://img.shields.io/badge/node-20%2B-339933?style=flat-square)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green?style=flat-square)](LICENSE)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/arondaron)
-![GitHub release](https://img.shields.io/github/downloads/AronDaron/dataset-generator/total?style=flat-square)
-![HF downloads](https://img.shields.io/badge/dynamic/json?label=HF%20downloads&query=downloads&url=https%3A%2F%2Fhuggingface.co%2Fapi%2Fmodels%2FAronDaron%2FQwen2.5-Coder-7B-Instruct-DatasetGen-v2)
 
 </div>
 
@@ -86,18 +84,17 @@ https://github.com/user-attachments/assets/73f43f6c-a5b8-47c9-8de2-8e016e57cfef
 > General questions and ideas → [Discussions](../../discussions).
 
 
-- **Plan-then-Execute pipeline** - three stages (topics → outlines → examples), each can use a different model
-- **Tests** - 270-test suite (unit + integration + E2E) — internal
-- **Per-category configuration** - any number of categories with custom proportions, descriptions, and dedicated models
-- **LLM Judge** - a second model scores every example 0–100 against editable criteria; rejected examples are regenerated
-- **Real-time SSE dashboard** - global and per-category progress, live example feed, running cost
-- **Three export formats** - ShareGPT, Alpaca, ChatML
-- **Multi-turn conversations** - 1–5 turns generated coherently in one LLM call
-- **Actual cost tracking** - pulls real `usage` tokens from every response, multiplies by live pricing
-- **Embedding-based deduplication** - cosine similarity over OpenRouter embeddings
-- **Quality Report** - judge histogram, token stats, efficiency, export to JSON/CSV
-- **Dataset history + in-app preview** - turn-by-turn rendering, code highlighting, dataset merging
-- **HuggingFace Hub upload** - one-click push to your repo
+- **Plan-then-Execute pipeline** — three stages (topics → outlines → examples), each can use a different model
+- **Per-category configuration** — any number of categories with custom proportions, descriptions, and dedicated models
+- **LLM Judge** — a second model scores every example 0–100 against editable criteria; rejected examples are regenerated
+- **Real-time SSE dashboard** — global and per-category progress, live example feed, running cost
+- **Three export formats** — ShareGPT, Alpaca, ChatML
+- **Multi-turn conversations** — 1–5 turns generated coherently in one LLM call
+- **Actual cost tracking** — pulls real `usage` tokens from every response, multiplies by live pricing
+- **Embedding-based deduplication** — cosine similarity over OpenRouter embeddings
+- **Quality Report** — judge histogram, token stats, efficiency, export to JSON/CSV
+- **Dataset history + in-app preview** — turn-by-turn rendering, code highlighting, dataset merging
+- **HuggingFace Hub upload** — one-click push to your repo
 
 
 ---
