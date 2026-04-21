@@ -85,6 +85,7 @@ https://github.com/user-attachments/assets/73f43f6c-a5b8-47c9-8de2-8e016e57cfef
 
 
 - **Plan-then-Execute pipeline** — three stages (topics → outlines → examples), each can use a different model
+- **Tests** - 270-test suite (unit + integration + E2E) — internal
 - **Per-category configuration** — any number of categories with custom proportions, descriptions, and dedicated models
 - **LLM Judge** — a second model scores every example 0–100 against editable criteria; rejected examples are regenerated
 - **Real-time SSE dashboard** — global and per-category progress, live example feed, running cost
