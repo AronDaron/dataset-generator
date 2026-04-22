@@ -9,13 +9,16 @@ export const STATUS_LABELS: Record<string, string> = {
 }
 
 export const STAGE_LABELS: Record<string, string> = {
-  pending:             'Awaiting start',
-  generating_topics:   'Generating topics',
-  generating_examples: 'Generating examples',
-  completed:           'Completed',
-  cancelled:           'Cancelled',
-  failed:              'Generation error',
-  interrupted:         'Interrupted',
+  pending:                 'Awaiting start',
+  generating_topics:       'Generating topics',
+  generating_examples:     'Generating examples',
+  completed:               'Completed',
+  cancelled:               'Cancelled',
+  failed:                  'Generation error',
+  interrupted:             'Interrupted',
+  merging_copying:         'Copying examples',
+  merging_exporting:       'Writing JSONL',
+  merging_computing_stats: 'Computing statistics',
 }
 
 export interface StatusTone {

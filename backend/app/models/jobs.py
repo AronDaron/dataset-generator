@@ -21,7 +21,10 @@ class CategoryConfig(BaseModel):
 
 class JobConfig(BaseModel):
     categories: List[CategoryConfig] = Field(..., min_length=1, max_length=10)
-    total_examples: int = Field(..., ge=10, le=10000)
+    # Upper bound matches MAX_MERGE_EXAMPLES so merged jobs (which can reach
+    # 500k) can still be deserialized. User-facing create_job enforces a
+    # tighter cap (10_000) explicitly in the endpoint.
+    total_examples: int = Field(..., ge=10, le=500_000)
     temperature: float = Field(..., ge=0.0, le=1.5)
     max_tokens: int = Field(..., ge=512, le=8192)
     model: str = Field(..., min_length=1)
@@ -79,6 +82,9 @@ class ProgressJson(BaseModel):
         "cancelled",
         "failed",
         "interrupted",
+        "merging_copying",
+        "merging_exporting",
+        "merging_computing_stats",
     ]
     current_category: Optional[str] = None
     categories: Dict[str, CategoryProgress]

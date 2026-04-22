@@ -70,11 +70,17 @@ async def _migration_v4(db: aiosqlite.Connection) -> None:
     await db.execute("ALTER TABLE examples ADD COLUMN category TEXT NOT NULL DEFAULT ''")
 
 
+async def _migration_v5(db: aiosqlite.Connection) -> None:
+    """Add stats_json snapshot to jobs for pre-computed Quality Report."""
+    await db.execute("ALTER TABLE jobs ADD COLUMN stats_json TEXT")
+
+
 VERSIONED_MIGRATIONS = [
     _migration_v1,
     _migration_v2,
     _migration_v3,
     _migration_v4,
+    _migration_v5,
 ]
 
 
@@ -89,13 +95,16 @@ async def _detect_existing_schema(db: aiosqlite.Connection) -> int:
     except Exception:
         return 0
 
+    job_columns = await _get_job_columns(db)
+    if "stats_json" in job_columns:
+        return 5
     if "category" in columns:
         return 4
     if "prompt_tokens" in columns:
         return 3
     if "judge_score" in columns:
         return 2
-    if "progress_json" in (await _get_job_columns(db)):
+    if "progress_json" in job_columns:
         return 1
     return 0
 

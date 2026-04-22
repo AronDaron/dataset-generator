@@ -16,6 +16,11 @@ async def init_db() -> None:
     await _db.execute("PRAGMA foreign_keys = ON")
     await _db.execute("PRAGMA journal_mode = WAL")
     await _db.execute("PRAGMA synchronous = NORMAL")
+    # Cap the WAL file size so a crash / force-kill (no graceful close) can't
+    # leave behind a multi-GB WAL that makes subsequent queries crawl. 64 MB
+    # is large enough that normal operation never hits the limit, but small
+    # enough that recovery scans stay snappy.
+    await _db.execute("PRAGMA journal_size_limit = 67108864")
     await run_migrations(_db)
     # Mark ghost jobs (left running from a previous server session) as interrupted
     # — they can be resumed via POST /api/jobs/{id}/resume.
@@ -23,6 +28,15 @@ async def init_db() -> None:
         "UPDATE jobs SET status = 'interrupted' WHERE status IN ('pending', 'running', 'cancelling')"
     )
     await _db.commit()
+    # Self-heal: if the last shutdown wasn't graceful (power loss, SIGKILL,
+    # uvicorn --reload tearing a task mid-transaction), the WAL file may hold
+    # committed pages that were never checkpointed into the main db file.
+    # Running a TRUNCATE checkpoint here merges those pages and truncates the
+    # WAL to zero — the next query is cheap instead of walking a giant log.
+    try:
+        await _db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:
+        logger.exception("Startup WAL checkpoint failed (non-fatal)")
 
     # Remove orphaned JSONL files — files in datasets_dir with no matching job in DB.
     datasets_dir = settings.datasets_dir

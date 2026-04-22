@@ -93,7 +93,12 @@ def format_text_with_turns(content_json: str, fmt: str) -> str:
 
 
 def _cosine_similarity_matrix(embeddings: np.ndarray) -> np.ndarray:
-    """Compute pairwise cosine similarity using numpy."""
+    """Compute pairwise cosine similarity using numpy.
+
+    Allocates an N×N float matrix — use only for small N (<2000).
+    For larger N, go through _find_pairs_blockwise which streams blocks
+    of block_size × N scores.
+    """
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
     norms = np.maximum(norms, 1e-10)  # avoid division by zero
     normalized = embeddings / norms
@@ -108,6 +113,70 @@ def _find_pairs_above_threshold(
     scores = sim_matrix[i_idx, j_idx]
     mask = scores >= threshold
     pairs = list(zip(i_idx[mask].tolist(), j_idx[mask].tolist(), scores[mask].tolist()))
+    pairs.sort(key=lambda p: p[2], reverse=True)
+    return pairs
+
+
+# Full-matrix path is kept for small N (< FULL_MATRIX_CUTOFF). Above that we
+# switch to block-wise which never allocates an N×N matrix.
+FULL_MATRIX_CUTOFF = 2000
+
+
+def _choose_block_size(n: int, max_bytes: int = 500_000_000) -> int:
+    """Pick a block size for the (block, N) score slices. Caps block memory
+    to ~`max_bytes` (default 500 MB) so even a 500k-row dedup stays bounded.
+    """
+    if n <= 0:
+        return 1
+    bytes_per_row = n * 4  # float32
+    target = max(1, max_bytes // bytes_per_row)
+    return max(128, min(1000, target))
+
+
+def _find_pairs_blockwise(
+    embeddings: np.ndarray,
+    threshold: float,
+    block_size: int | None = None,
+) -> list[tuple[int, int, float]]:
+    """Equivalent to _find_pairs_above_threshold(_cosine_similarity_matrix(e))
+    without materializing the full N×N matrix. Memory peak per iteration is
+    roughly block_size × N × 4 bytes.
+
+    Input is NOT assumed to be normalized — this function normalizes in place
+    on a copy. Output pairs are sorted by score descending, same as the
+    full-matrix path.
+    """
+    n = embeddings.shape[0]
+    if n < 2:
+        return []
+    if block_size is None:
+        block_size = _choose_block_size(n)
+
+    # Normalize — match the full-matrix behavior byte-for-byte.
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    norms = np.maximum(norms, 1e-10)
+    normed = embeddings / norms
+
+    pairs: list[tuple[int, int, float]] = []
+    for i0 in range(0, n, block_size):
+        i1 = min(i0 + block_size, n)
+        # Slice shape: (block, n); we only keep the upper triangle j > i.
+        block_scores = normed[i0:i1] @ normed.T
+        block_rows = block_scores.shape[0]
+        for local_i in range(block_rows):
+            global_i = i0 + local_i
+            # Upper triangle: j > global_i
+            start_j = global_i + 1
+            if start_j >= n:
+                continue
+            row = block_scores[local_i, start_j:]
+            hits = np.nonzero(row >= threshold)[0]
+            if hits.size == 0:
+                continue
+            for off in hits:
+                j = start_j + int(off)
+                pairs.append((global_i, j, float(row[off])))
+
     pairs.sort(key=lambda p: p[2], reverse=True)
     return pairs
 
@@ -136,9 +205,15 @@ async def find_duplicates(
     # Get embeddings from API
     embeddings = await get_embeddings(api_key, embedding_model, texts)
 
-    # Compute cosine similarity in a thread to avoid blocking event loop
-    sim_matrix = await asyncio.to_thread(_cosine_similarity_matrix, embeddings)
-    raw_pairs = _find_pairs_above_threshold(sim_matrix, threshold)
+    # Small N: full N×N matrix (lower overhead). Large N: block-wise avoids
+    # allocating N² memory.
+    if embeddings.shape[0] < FULL_MATRIX_CUTOFF:
+        sim_matrix = await asyncio.to_thread(_cosine_similarity_matrix, embeddings)
+        raw_pairs = _find_pairs_above_threshold(sim_matrix, threshold)
+    else:
+        raw_pairs = await asyncio.to_thread(
+            _find_pairs_blockwise, embeddings, threshold
+        )
 
     result: list[DuplicatePairResponse] = []
     for i, j, score in raw_pairs:

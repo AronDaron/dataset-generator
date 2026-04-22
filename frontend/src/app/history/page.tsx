@@ -6,9 +6,20 @@ import { useRouter } from 'next/navigation'
 import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, AlertCircle, CheckCircle2, XCircle, Upload, Merge, RotateCcw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getJobs, getHfToken, deleteJob, openDatasetsFolder, findDuplicates, mergeDatasets, resumeJob, dismissJob, type JobListItem, type MergeResponse } from '@/lib/api'
+import { getJobs, getHfToken, deleteJobWithProgress, openDatasetsFolder, findDuplicates, mergeDatasets, resumeJob, dismissJob, type JobListItem, type DeleteProgress } from '@/lib/api'
 import { UploadHfModal } from '@/components/history/UploadHfModal'
 import { StatusLegendPopover } from '@/components/jobs/StatusLegendPopover'
+import { STAGE_LABELS } from '@/lib/status-tone'
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? ''
+
+interface MergeProgress {
+  jobId: string
+  status: string
+  stage: string
+  completed: number
+  total: number
+}
 
 type StatusFilter = 'all' | 'completed' | 'running' | 'failed' | 'cancelled' | 'interrupted'
 type FormatFilter = 'all' | 'sharegpt' | 'alpaca' | 'chatml'
@@ -120,6 +131,7 @@ interface JobRowProps {
   job: JobListItem
   onDelete: (id: string) => void
   deletingId: string | null
+  deletingProgress: DeleteProgress | null
   openingFolderId: string | null
   onOpenFolder: (id: string) => void
   onUpload: (id: string) => void
@@ -131,7 +143,7 @@ interface JobRowProps {
   dismissingId: string | null
 }
 
-function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUpload, selected, onToggle, onResume, resumingId, onDismiss, dismissingId }: JobRowProps) {
+function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, onOpenFolder, onUpload, selected, onToggle, onResume, resumingId, onDismiss, dismissingId }: JobRowProps) {
   const [dedupState, setDedupState] = useState<'idle' | 'scanning' | 'done'>('idle')
   const [dedupCount, setDedupCount] = useState(0)
 
@@ -311,7 +323,11 @@ function JobRow({ job, onDelete, deletingId, openingFolderId, onOpenFolder, onUp
             disabled={deletingId === job.id}
           >
             <Trash2 className="size-3.5" />
-            {deletingId === job.id ? 'Deleting…' : 'Delete'}
+            {deletingId === job.id
+              ? (deletingProgress && deletingProgress.total > 0
+                  ? `Deleting ${deletingProgress.deleted.toLocaleString('en-US')}/${deletingProgress.total.toLocaleString('en-US')}`
+                  : 'Deleting…')
+              : 'Delete'}
           </Button>
         )}
       </div>
@@ -327,6 +343,7 @@ export default function HistoryPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [formatFilter, setFormatFilter] = useState<FormatFilter>('all')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deletingProgress, setDeletingProgress] = useState<DeleteProgress | null>(null)
   const [resumingId, setResumingId] = useState<string | null>(null)
   const [dismissingId, setDismissingId] = useState<string | null>(null)
   const [openingFolderId, setOpeningFolderId] = useState<string | null>(null)
@@ -334,8 +351,8 @@ export default function HistoryPage() {
   const [hasHfToken, setHasHfToken] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [merging, setMerging] = useState(false)
-  const [mergeResult, setMergeResult] = useState<MergeResponse | null>(null)
   const [mergeError, setMergeError] = useState<string | null>(null)
+  const [mergeProgress, setMergeProgress] = useState<MergeProgress | null>(null)
   const [shuffleOnMerge, setShuffleOnMerge] = useState(true)
 
   useEffect(() => {
@@ -370,7 +387,6 @@ export default function HistoryPage() {
   // Clear selection when filters change
   useEffect(() => {
     setSelectedIds(new Set())
-    setMergeResult(null)
     setMergeError(null)
   }, [statusFilter, formatFilter])
 
@@ -418,13 +434,15 @@ export default function HistoryPage() {
   async function handleDelete(id: string) {
     if (!window.confirm('Delete this job and all its examples? This cannot be undone.')) return
     setDeletingId(id)
+    setDeletingProgress({ deleted: 0, total: 0 })
     try {
-      await deleteJob(id)
+      await deleteJobWithProgress(id, (p) => setDeletingProgress(p))
       setJobs((prev) => prev.filter((j) => j.id !== id))
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Delete failed')
     } finally {
       setDeletingId(null)
+      setDeletingProgress(null)
     }
   }
 
@@ -435,27 +453,83 @@ export default function HistoryPage() {
       else next.add(id)
       return next
     })
-    setMergeResult(null)
     setMergeError(null)
   }
 
   async function handleMerge() {
     setMerging(true)
     setMergeError(null)
-    setMergeResult(null)
     try {
       const result = await mergeDatasets({ job_ids: [...selectedIds], shuffle: shuffleOnMerge })
-      setMergeResult(result)
+      // Async merge — stay on /history and watch progress inline via SSE.
       setSelectedIds(new Set())
-      // Refresh job list so the new merged job appears
-      const refreshed = await getJobs()
-      setJobs(refreshed)
+      setMergeProgress({
+        jobId: result.job_id,
+        status: 'pending',
+        stage: 'pending',
+        completed: 0,
+        total: result.total_examples,
+      })
     } catch (err) {
       setMergeError(err instanceof Error ? err.message : 'Merge failed')
     } finally {
       setMerging(false)
     }
   }
+
+  // Stream merge progress from the backend. Banner closes + list refreshes
+  // when the merged job reaches a terminal status (completed/failed/cancelled).
+  useEffect(() => {
+    if (!mergeProgress) return
+    const jobId = mergeProgress.jobId
+
+    const es = new EventSource(`${BACKEND_URL}/api/jobs/${jobId}/stream`)
+    let closed = false
+
+    async function handleTerminal() {
+      // Refresh the job list so the new merged row appears.
+      try {
+        const refreshed = await getJobs()
+        setJobs(refreshed)
+      } catch { /* non-fatal */ }
+      // Keep the banner briefly so the user sees "completed", then hide.
+      setTimeout(() => setMergeProgress(null), 1500)
+    }
+
+    function parse(e: MessageEvent) {
+      try {
+        const data = JSON.parse(e.data) as {
+          status: string
+          progress?: { current_stage?: string; completed?: number; total_examples?: number }
+        }
+        const stage = data.progress?.current_stage ?? data.status
+        setMergeProgress((prev) => prev && prev.jobId === jobId ? {
+          ...prev,
+          status: data.status,
+          stage,
+          completed: data.progress?.completed ?? prev.completed,
+          total: data.progress?.total_examples ?? prev.total,
+        } : prev)
+        if (['completed', 'failed', 'cancelled'].includes(data.status) && !closed) {
+          closed = true
+          es.close()
+          if (data.status === 'failed') {
+            setMergeError('Merge failed — check the job activity log')
+          }
+          handleTerminal()
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    es.addEventListener('progress', parse)
+    es.addEventListener('done', parse)
+    es.onerror = () => {
+      if (closed) return
+      // Transient disconnects are handled by the browser's own reconnect.
+    }
+
+    return () => { closed = true; es.close() }
+  }, [mergeProgress?.jobId])
 
   async function handleOpenFolder(id: string) {
     setOpeningFolderId(id)
@@ -565,7 +639,7 @@ export default function HistoryPage() {
               {selectedIds.size} selected
             </span>
             <button
-              onClick={() => { setSelectedIds(new Set()); setMergeResult(null); setMergeError(null) }}
+              onClick={() => { setSelectedIds(new Set()); setMergeError(null) }}
               className="text-xs text-text-3 underline decoration-dotted hover:text-text-0"
             >
               Clear
@@ -597,23 +671,47 @@ export default function HistoryPage() {
           </div>
         )}
 
-        {/* Merge result / error */}
-        {mergeResult && (
-          <div className="flex items-center gap-2 rounded-xl border border-transparent bg-ok/10 px-5 py-3 text-sm text-ok">
-            <CheckCircle2 className="size-4 shrink-0" />
-            Merged {mergeResult.total_examples.toLocaleString('en-US')} examples from {mergeResult.source_jobs} jobs
-            <Link href={`/jobs?id=${mergeResult.job_id}`}>
-              <Button variant="outline" size="sm" className="ml-2 h-7 gap-1 border-ok/40 text-ok hover:border-ok/60">
-                <Eye className="size-3" />
-                View
-              </Button>
-            </Link>
-          </div>
-        )}
+        {/* Merge error — banner stays on page; progress shown below. */}
         {mergeError && (
           <div className="flex items-center gap-2 rounded-xl border border-transparent bg-destructive/10 px-5 py-3 text-sm text-destructive">
             <AlertCircle className="size-4 shrink-0" />
             {mergeError}
+          </div>
+        )}
+
+        {/* Merge progress — live SSE of the background merge task. */}
+        {mergeProgress && (
+          <div className="rounded-xl border border-primary/30 bg-primary/5 px-5 py-4">
+            <div className="flex items-center gap-2 text-sm">
+              {mergeProgress.status === 'completed' ? (
+                <CheckCircle2 className="size-4 shrink-0 text-ok" />
+              ) : (
+                <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+              )}
+              <span className="font-medium text-text-1">
+                {STAGE_LABELS[mergeProgress.stage] ?? mergeProgress.stage}
+              </span>
+              {mergeProgress.total > 0 && (
+                <span className="text-text-3">
+                  {mergeProgress.completed.toLocaleString('en-US')} / {mergeProgress.total.toLocaleString('en-US')}
+                </span>
+              )}
+            </div>
+            {mergeProgress.total > 0 && (
+              <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-border/50">
+                <div
+                  className={cn(
+                    'h-full transition-[width] duration-500 ease-out',
+                    mergeProgress.status === 'completed'
+                      ? 'bg-gradient-to-r from-[oklch(0.50_0.14_145)] to-primary'
+                      : 'progress-running',
+                  )}
+                  style={{
+                    width: `${Math.min(100, Math.round((mergeProgress.completed / mergeProgress.total) * 100))}%`,
+                  }}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -662,6 +760,7 @@ export default function HistoryPage() {
                 onDismiss={handleDismiss}
                 dismissingId={dismissingId}
                 deletingId={deletingId}
+                deletingProgress={deletingId === job.id ? deletingProgress : null}
                 openingFolderId={openingFolderId}
                 selected={selectedIds.has(job.id)}
                 onToggle={handleToggle}

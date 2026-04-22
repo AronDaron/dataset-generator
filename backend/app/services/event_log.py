@@ -1,6 +1,6 @@
 """In-memory per-job activity event log.
 
-Events live in a bounded deque per job_id (maxlen=100). Produced by the
+Events live in a bounded deque per job_id (maxlen=MAX_EVENTS_PER_JOB=20). Produced by the
 job pipeline (job_runner.py) and consumed by the SSE stream handler
 (routers/jobs.py). Cleared when a job is hard-deleted.
 
@@ -54,6 +54,13 @@ _TEMPLATES: dict[str, tuple[Level, str]] = {
     "example_accepted_no_judge":     ("info",  "{category} — accepted"),
     "job_completed":                 ("info",  "Generation complete — {completed} examples"),
     "job_resumed":                   ("info",  "Resumed from {completed}/{target} examples"),
+    "merge_started":                 ("info",  "Merging {source_count} datasets — {total} examples"),
+    "merge_copy_batch":              ("info",  "Copied {done}/{total} examples"),
+    "merge_export_start":            ("info",  "Writing JSONL file"),
+    "merge_stats_start":             ("info",  "Computing statistics"),
+    "merge_completed":               ("info",  "Merge complete — {total} examples"),
+    "merge_failed":                  ("error", "Merge failed: {error}"),
+    "merge_shuffle_skipped_large":   ("warn",  "Shuffle skipped — {total} exceeds {threshold} limit"),
 }
 
 

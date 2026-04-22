@@ -15,7 +15,6 @@ from fastapi.responses import StreamingResponse
 from app.config import settings
 from app.database import get_db
 from app.utils import get_api_key as _get_api_key, now_iso as _now_iso
-import statistics
 
 from app.models.jobs import (
     CategoryProgress,
@@ -23,7 +22,6 @@ from app.models.jobs import (
     DuplicateRequest,
     DuplicatesResponse,
     ExampleResponse,
-    GenerationEfficiency,
     JobConfig,
     JobListItem,
     JobResponse,
@@ -31,9 +29,6 @@ from app.models.jobs import (
     ProgressJson,
     ResumableJobsResponse,
     RunSummary,
-    ScoreBucket,
-    ScoreDistribution,
-    TokenStatsByCategory,
 )
 from app.services.dedup_service import find_duplicates
 from app.services.event_log import clear_events, get_events
@@ -47,6 +42,7 @@ from app.services.job_runner import (
     run_job,
 )
 from app.services.openrouter_client import list_models
+from app.services.stats_service import compute_stats_snapshot, snapshot_to_response_parts
 
 router = APIRouter()
 
@@ -255,12 +251,26 @@ def _row_to_list_item(
     )
 
 
+# User-facing per-job generation cap. Lives outside JobConfig because the
+# shared model also validates merged-job configs, which can legitimately
+# hold 500k examples.
+MAX_USER_JOB_EXAMPLES = 10_000
+
+
 @router.post("", response_model=JobResponse, status_code=201)
 async def create_job(
     body: JobConfig,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> JobResponse:
     """Create and immediately start a generation job."""
+    if body.total_examples > MAX_USER_JOB_EXAMPLES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"total_examples must be <= {MAX_USER_JOB_EXAMPLES:,} for a single "
+                f"generation job. For larger datasets, generate in chunks and merge."
+            ),
+        )
     api_key = await _get_api_key(db)
 
     # Resolve delay, retry_count, retry_cooldown from global settings if not provided in body
@@ -492,12 +502,88 @@ async def get_job(
     return _row_to_job_response(row)
 
 
+# Number of example rows to delete per commit. Small enough that a single
+# batch finishes in <1s even on fragmented WAL-heavy databases, large enough
+# that a 100k-row job takes ~10 commits instead of 100k.
+_DELETE_BATCH_SIZE = 10_000
+
+
+async def _chunked_delete_examples(
+    db: aiosqlite.Connection,
+    job_id: str,
+    *,
+    on_progress=None,
+) -> int:
+    """Delete all examples for `job_id` in bounded batches. Commits after each
+    batch so no single transaction holds 100k+ row locks (avoids the ~minute-
+    long "Deleting…" stalls we saw on 4 GB fragmented databases).
+
+    If `on_progress` is provided it's called with (deleted, total) after every
+    batch — safe to pass a coroutine function; awaited automatically.
+    """
+    async with await db.execute(
+        "SELECT COUNT(*) FROM examples WHERE job_id = ?", (job_id,)
+    ) as cur:
+        total = (await cur.fetchone())[0]
+
+    if on_progress is not None:
+        await _maybe_await(on_progress(0, total))
+
+    deleted = 0
+    while True:
+        cursor = await db.execute(
+            "DELETE FROM examples WHERE rowid IN "
+            "(SELECT rowid FROM examples WHERE job_id = ? LIMIT ?)",
+            (job_id, _DELETE_BATCH_SIZE),
+        )
+        batch_deleted = cursor.rowcount or 0
+        await cursor.close()
+        await db.commit()
+        if batch_deleted == 0:
+            break
+        deleted += batch_deleted
+        if on_progress is not None:
+            await _maybe_await(on_progress(deleted, total))
+
+    return deleted
+
+
+async def _maybe_await(value):
+    """Await if the value is a coroutine, otherwise pass through. Lets
+    callers hand in either sync or async progress callbacks."""
+    import inspect
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+async def _finalize_job_delete(db: aiosqlite.Connection, job_id: str) -> None:
+    """Steps that run after all examples are out: DELETE the job row, drop
+    in-memory events, unlink the JSONL file. Shared by both delete paths."""
+    await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+    await db.commit()
+    clear_events(job_id)
+    jsonl_path = settings.datasets_dir / f"{job_id}.jsonl"
+    logger.info("Deleting JSONL file: %s (exists=%s)", jsonl_path, jsonl_path.exists())
+    try:
+        jsonl_path.unlink(missing_ok=True)
+        logger.info("JSONL file deleted: %s", jsonl_path)
+    except Exception:
+        logger.exception("Failed to delete JSONL file: %s", jsonl_path)
+
+
 @router.delete("/{job_id}", status_code=204)
 async def delete_job_endpoint(
     job_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> None:
-    """Cancel a running job, or hard-delete a terminal job from the database."""
+    """Cancel a running job, or hard-delete a terminal job from the database.
+
+    Deletes happen in chunks (see _chunked_delete_examples) so large jobs
+    don't tie up the DB in a single multi-minute transaction. Response stays
+    204 for API compatibility — UI progress is surfaced through the separate
+    POST /{job_id}/delete-stream endpoint.
+    """
     async with await db.execute(
         "SELECT status FROM jobs WHERE id = ?", (job_id,)
     ) as cursor:
@@ -517,22 +603,84 @@ async def delete_job_endpoint(
         await db.commit()
 
     elif status in ("completed", "cancelled", "failed", "interrupted"):
-        await db.execute("DELETE FROM examples WHERE job_id = ?", (job_id,))
-        await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
-        await db.commit()
-        clear_events(job_id)
-        jsonl_path = settings.datasets_dir / f"{job_id}.jsonl"
-        logger.info("Deleting JSONL file: %s (exists=%s)", jsonl_path, jsonl_path.exists())
-        try:
-            jsonl_path.unlink(missing_ok=True)
-            logger.info("JSONL file deleted: %s", jsonl_path)
-        except Exception:
-            logger.exception("Failed to delete JSONL file: %s", jsonl_path)
+        await _chunked_delete_examples(db, job_id)
+        await _finalize_job_delete(db, job_id)
 
     else:
         raise HTTPException(
             status_code=409, detail=f"Job is currently {status}, try again shortly"
         )
+
+
+@router.post("/{job_id}/delete-stream")
+async def delete_job_with_progress(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> StreamingResponse:
+    """Delete a terminal job with SSE progress events.
+
+    Frontend uses this for large jobs so the user sees "Deleting 40 000 /
+    386 000…" instead of a frozen spinner. Backed by the same
+    _chunked_delete_examples helper as DELETE /{job_id}.
+
+    Status codes are expressed as the first event:
+      - event: error  — 404 (missing) or 409 (can't delete in this state)
+      - event: progress — periodic during delete, with {deleted, total}
+      - event: done — success, with {total}
+    """
+    async def event_stream() -> AsyncGenerator[str, None]:
+        async with await db.execute(
+            "SELECT status FROM jobs WHERE id = ?", (job_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            yield f"event: error\ndata: {json.dumps({'code': 404, 'detail': 'Job not found'})}\n\n"
+            return
+
+        status = row["status"]
+        if status not in ("completed", "cancelled", "failed", "interrupted"):
+            yield (
+                "event: error\ndata: "
+                + json.dumps({"code": 409, "detail": f"Job is currently {status}"})
+                + "\n\n"
+            )
+            return
+
+        async def emit_progress(deleted: int, total: int) -> None:
+            nonlocal last_yield
+            last_yield = f"event: progress\ndata: {json.dumps({'deleted': deleted, 'total': total})}\n\n"
+
+        # The on_progress callback can't yield directly into the generator,
+        # so we stash its last payload and yield it after each batch returns.
+        last_yield: str | None = None
+
+        # Emit an initial progress=0 so the UI can pick up `total` before
+        # the first batch completes.
+        async with await db.execute(
+            "SELECT COUNT(*) FROM examples WHERE job_id = ?", (job_id,)
+        ) as cur:
+            total = (await cur.fetchone())[0]
+        yield f"event: progress\ndata: {json.dumps({'deleted': 0, 'total': total})}\n\n"
+
+        deleted = 0
+        while True:
+            cursor = await db.execute(
+                "DELETE FROM examples WHERE rowid IN "
+                "(SELECT rowid FROM examples WHERE job_id = ? LIMIT ?)",
+                (job_id, _DELETE_BATCH_SIZE),
+            )
+            batch_deleted = cursor.rowcount or 0
+            await cursor.close()
+            await db.commit()
+            if batch_deleted == 0:
+                break
+            deleted += batch_deleted
+            yield f"event: progress\ndata: {json.dumps({'deleted': deleted, 'total': total})}\n\n"
+
+        await _finalize_job_delete(db, job_id)
+        yield f"event: done\ndata: {json.dumps({'total': total})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 async def _stream_job_progress(
@@ -693,32 +841,6 @@ async def list_examples(
 # ---- Quality Report / Stats ----
 
 
-def _compute_score_buckets(scores: list[int]) -> list[ScoreBucket]:
-    """Build histogram buckets with dynamic width based on score range."""
-    if not scores:
-        return []
-    min_s, max_s = min(scores), max(scores)
-    score_range = max_s - min_s
-    if score_range <= 10:
-        width = 1
-    elif score_range <= 25:
-        width = 5
-    else:
-        width = 10
-    start = (min_s // width) * width
-    buckets: list[ScoreBucket] = []
-    while start <= max_s:
-        end = min(start + width, max_s + 1)
-        is_last = end > max_s
-        count = sum(1 for s in scores if start <= s < end) if not is_last else sum(1 for s in scores if start <= s <= max_s)
-        upper_label = min(start + width - 1, max_s)
-        label = f"{start}-{upper_label}" if width > 1 else str(start)
-        if count > 0:
-            buckets.append(ScoreBucket(label=label, count=count))
-        start += width
-    return buckets
-
-
 def _build_run_summary(
     row,
     config: JobConfig,
@@ -838,9 +960,15 @@ async def get_job_stats(
     job_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> JobStatsResponse:
-    """Quality report statistics for a completed job."""
+    """Quality report statistics for a completed job.
+
+    Uses the pre-computed `stats_json` snapshot written at job finalize (P1-C)
+    when available. Falls back to on-the-fly aggregation for rows that predate
+    the migration (stats_json IS NULL).
+    """
     async with await db.execute(
-        "SELECT id, status, config_json, progress_json, created_at, updated_at FROM jobs WHERE id = ?",
+        "SELECT id, status, config_json, progress_json, stats_json, created_at, updated_at "
+        "FROM jobs WHERE id = ?",
         (job_id,),
     ) as cursor:
         row = await cursor.fetchone()
@@ -850,9 +978,8 @@ async def get_job_stats(
     config = JobConfig.model_validate_json(row["config_json"])
     progress = _parse_progress(row)
 
-    # Load source configs when this is a merged job so that Run Summary can
-    # surface the real per-category gen/judge models (not the placeholder).
-    # For nested merges, descend the chain to leaf (non-merged) sources.
+    # run_summary is always on-the-fly — merged jobs resolve source configs
+    # dynamically and those sources may change after the snapshot is taken.
     raw_cfg = _raw_config(row)
     source_configs: list[dict] = []
     if _is_merged(raw_cfg) and raw_cfg:
@@ -863,67 +990,28 @@ async def get_job_stats(
 
     run_summary = _build_run_summary(row, config, progress, source_configs)
 
-    # Token stats by category
-    async with await db.execute(
-        "SELECT "
-        "  CASE WHEN category = '' THEN 'Unknown' ELSE category END AS cat, "
-        "  COUNT(*) AS cnt, "
-        "  ROUND(AVG(prompt_tokens + completion_tokens), 1) AS avg_tok, "
-        "  MIN(prompt_tokens + completion_tokens) AS min_tok, "
-        "  MAX(prompt_tokens + completion_tokens) AS max_tok "
-        "FROM examples WHERE job_id = ? "
-        "GROUP BY cat ORDER BY cat",
-        (job_id,),
-    ) as cursor:
-        token_rows = await cursor.fetchall()
-
-    token_stats = [
-        TokenStatsByCategory(
-            category=r["cat"],
-            examples_count=r["cnt"],
-            avg_tokens=r["avg_tok"] or 0,
-            min_tokens=r["min_tok"] or 0,
-            max_tokens=r["max_tok"] or 0,
-        )
-        for r in token_rows
-    ]
-
-    # Score distribution (only when judge was enabled)
-    score_dist = None
-    if config.judge_enabled:
-        async with await db.execute(
-            "SELECT judge_score FROM examples "
-            "WHERE job_id = ? AND judge_score IS NOT NULL",
-            (job_id,),
-        ) as cursor:
-            score_rows = await cursor.fetchall()
-        scores = [r["judge_score"] for r in score_rows]
-        if scores:
-            sorted_scores = sorted(scores)
-            score_dist = ScoreDistribution(
-                buckets=_compute_score_buckets(scores),
-                total=len(scores),
-                min_score=sorted_scores[0],
-                max_score=sorted_scores[-1],
-                avg_score=round(statistics.mean(scores), 1),
-                median_score=int(statistics.median(sorted_scores)),
+    stats_json = row["stats_json"] if "stats_json" in row.keys() else None
+    if stats_json:
+        try:
+            snapshot = json.loads(stats_json)
+            token_stats, score_dist, efficiency = snapshot_to_response_parts(snapshot)
+            return JobStatsResponse(
+                job_id=job_id,
+                judge_enabled=config.judge_enabled,
+                run_summary=run_summary,
+                score_distribution=score_dist,
+                token_stats=token_stats,
+                generation_efficiency=efficiency,
             )
+        except (json.JSONDecodeError, ValueError):
+            # Corrupted snapshot — fall through to on-the-fly compute.
+            pass
 
-    # Generation efficiency from progress_json
-    efficiency: list[GenerationEfficiency] = []
-    if progress and progress.categories:
-        for cat_name, cat_prog in progress.categories.items():
-            total_attempts = cat_prog.completed + cat_prog.skipped
-            rate = (cat_prog.completed / total_attempts * 100) if total_attempts > 0 else 100.0
-            efficiency.append(
-                GenerationEfficiency(
-                    category=cat_name,
-                    target=cat_prog.target,
-                    completed=cat_prog.completed,
-                    skipped=cat_prog.skipped,
-                    success_rate=round(rate, 1),
-                )
-            )
+    # Fallback: compute on-the-fly for pre-migration jobs or corrupted snapshots.
+    snapshot = await compute_stats_snapshot(
+        db, job_id, judge_enabled=config.judge_enabled, progress=progress
+    )
+    token_stats, score_dist, efficiency = snapshot_to_response_parts(snapshot)
 
     return JobStatsResponse(
         job_id=job_id,
@@ -936,6 +1024,11 @@ async def get_job_stats(
 
 
 # ---- Deduplication ----
+
+# Hard cap for dedup — tighter than merge's MAX_MERGE_EXAMPLES because
+# embeddings + block-wise similarity are memory-heavier than a plain merge
+# (e.g. 500k × 1536 dim × 4B = ~3 GB just for the embedding matrix).
+MAX_DEDUP_EXAMPLES = 100_000
 
 
 @router.post("/{job_id}/duplicates", response_model=DuplicatesResponse)
@@ -956,6 +1049,15 @@ async def find_duplicate_examples(
     ) as cur:
         row = await cur.fetchone()
         total = row[0] if row else 0
+
+    if total > MAX_DEDUP_EXAMPLES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Cannot dedup {total:,} examples — limit is "
+                f"{MAX_DEDUP_EXAMPLES:,}. Dedupe source jobs individually before merging."
+            ),
+        )
 
     # Fetch API key and embedding model from settings
     api_key = await _get_api_key(db)
@@ -988,6 +1090,9 @@ async def delete_example(
         "DELETE FROM examples WHERE id = ? AND job_id = ?",
         (example_id, job_id),
     )
+    # Invalidate the cached Quality Report snapshot — next GET /stats will
+    # recompute from the mutated examples table.
+    await db.execute("UPDATE jobs SET stats_json = NULL WHERE id = ?", (job_id,))
     await db.commit()
 
     # Keep JSONL file in sync with DB state

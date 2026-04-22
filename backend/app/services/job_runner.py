@@ -960,6 +960,13 @@ async def run_job(
 
         await _update_progress(db, job_id, "completed", progress)
         try:
+            from app.services.stats_service import compute_and_store
+            await compute_and_store(
+                db, job_id, judge_enabled=config.judge_enabled, progress=progress
+            )
+        except Exception:
+            logger.exception("Stats snapshot failed for job %s (non-fatal)", job_id)
+        try:
             await export_job(job_id, db)
         except Exception:
             logger.exception("Auto-export failed for job %s (non-fatal)", job_id)

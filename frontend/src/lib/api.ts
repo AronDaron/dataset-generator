@@ -175,7 +175,17 @@ export interface ProgressJson {
   total_examples: number
   completed: number
   skipped: number
-  current_stage: 'pending' | 'generating_topics' | 'generating_examples' | 'completed' | 'cancelled' | 'failed' | 'interrupted'
+  current_stage:
+    | 'pending'
+    | 'generating_topics'
+    | 'generating_examples'
+    | 'completed'
+    | 'cancelled'
+    | 'failed'
+    | 'interrupted'
+    | 'merging_copying'
+    | 'merging_exporting'
+    | 'merging_computing_stats'
   current_category: string | null
   categories: Record<string, CategoryProgress>
   judge_stats: JudgeStats | null
@@ -297,6 +307,73 @@ export async function getJobs(): Promise<JobListItem[]> {
 
 export async function deleteJob(jobId: string): Promise<void> {
   await request(`/api/jobs/${jobId}`, { method: 'DELETE' })
+}
+
+export interface DeleteProgress {
+  deleted: number
+  total: number
+}
+
+/**
+ * Delete a job while receiving SSE progress events. Calls `onProgress` for
+ * each batch (every ~10k rows). Throws on backend `event: error` so callers
+ * can surface 404/409 like the plain deleteJob. Resolves when `event: done`
+ * arrives.
+ *
+ * For small jobs the whole thing finishes in a single tick — progress events
+ * are still fine to ignore. Its real purpose is avoiding frozen UI during
+ * delete of 100k+ row jobs.
+ */
+export async function deleteJobWithProgress(
+  jobId: string,
+  onProgress?: (p: DeleteProgress) => void,
+): Promise<DeleteProgress> {
+  const url = `${BACKEND_URL}/api/jobs/${jobId}/delete-stream`
+  const res = await fetch(url, { method: 'POST' })
+  if (!res.ok || !res.body) {
+    throw new Error(`Delete failed: ${res.status}`)
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let last: DeleteProgress = { deleted: 0, total: 0 }
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    // Parse complete SSE events (separated by double newline).
+    let sep: number
+    while ((sep = buffer.indexOf('\n\n')) !== -1) {
+      const raw = buffer.slice(0, sep)
+      buffer = buffer.slice(sep + 2)
+
+      let event = 'message'
+      let data = ''
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) data += line.slice(5).trim()
+      }
+
+      if (!data) continue
+      let parsed: { code?: number; detail?: string; deleted?: number; total?: number }
+      try { parsed = JSON.parse(data) } catch { continue }
+
+      if (event === 'error') {
+        throw new Error(parsed.detail ?? 'Delete failed')
+      }
+      if (event === 'progress') {
+        last = { deleted: parsed.deleted ?? 0, total: parsed.total ?? 0 }
+        onProgress?.(last)
+      }
+      if (event === 'done') {
+        last = { deleted: parsed.total ?? last.total, total: parsed.total ?? last.total }
+        return last
+      }
+    }
+  }
+  return last
 }
 
 // ---- Dataset preview types ----
