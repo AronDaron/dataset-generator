@@ -12,7 +12,10 @@ def build_topic_generation_prompt(
         "You are an expert dataset curator. "
         "Your task is to generate a list of highly specific, diverse, and non-overlapping topics "
         "that will be used to create training examples for an AI language model. "
-        "Each topic must be self-contained and lead naturally to a meaningful instructional conversation."
+        "Each topic must be self-contained and faithful to the Category Description — "
+        "the description is the authoritative instruction for the style and framing of the topics "
+        "(e.g., if the description indicates problem-posing, each topic should be phrased as a "
+        "concrete problem to solve, not as a concept to explain)."
     )
     user = (
         f"Generate exactly {count} unique topics for the following category.\n\n"
@@ -35,21 +38,29 @@ def build_topic_generation_prompt(
 def build_outline_generation_prompt(
     category_name: str,
     topic: str,
+    category_description: str = "",
 ) -> list[dict[str, str]]:
     system = (
-        "You are an expert instructional designer. "
-        "Given a topic, produce a concise 2–4 point outline of what a high-quality "
-        "question-and-answer training example on that topic should cover."
+        "You are an expert dataset designer. "
+        "Given a category description and a topic, produce a concise 2–4 point outline "
+        "of what a training example on that topic should cover. "
+        "The outline must match the style and format implied by the Category Description — "
+        "for a problem-solving category, the points describe solution stages "
+        "(problem framing, approach, implementation, complexity); "
+        "for an explanatory category, the points describe concept stages."
     )
+    desc_block = f"Category description: {category_description}\n" if category_description else ""
     user = (
         f"Create a brief outline for a training example on the following topic.\n\n"
         f"Category: {category_name}\n"
+        f"{desc_block}"
         f"Topic: {topic}\n\n"
         "Requirements:\n"
         "- 2 to 4 bullet points maximum\n"
-        "- Each point describes a key aspect or subtopic to address in the example\n"
+        "- Each point describes a key aspect to address, phrased consistently with the "
+        "Category Description style\n"
         "- Output ONLY a valid JSON array of short strings\n"
-        '- Example format: ["Explain concept X", "Show a practical example", "Mention common pitfall"]\n\n'
+        '- Example format: ["First aspect", "Second aspect", "Third aspect"]\n\n'
         "Output the JSON array now:"
     )
     return [
@@ -65,6 +76,7 @@ def build_example_generation_prompt(
     output_format: Literal["sharegpt", "alpaca", "chatml"],
     max_tokens: int,
     conversation_turns: int = 2,
+    category_description: str = "",
 ) -> list[dict[str, str]]:
     outline_text = "\n".join(f"- {p}" for p in outline_points)
     token_guideline = int(max_tokens * 0.70)
@@ -72,20 +84,30 @@ def build_example_generation_prompt(
 
     system = (
         "You are an expert AI training data creator. "
-        "You generate realistic, high-quality question-and-answer pairs or multi-turn "
-        "conversations that will be used to fine-tune language models. "
+        "You generate realistic, high-quality training examples "
+        "that will be used to fine-tune language models. "
         "Your output must be valid JSON and nothing else — no markdown, no explanation.\n\n"
         "Critical rules:\n"
+        "- The Category Description (when provided) is the AUTHORITATIVE instruction for the "
+        "framing, style, and format of BOTH the user message(s) and the assistant response(s). "
+        "Follow every constraint it states literally — including any like 'return only the solution', "
+        "'no top-level print or usage demo', 'contest-style problem', 'reply with the function only'.\n"
+        "- The user's first message style MUST match the Category Description. "
+        "If the description indicates problem-posing (e.g., 'user poses a problem', "
+        "'contest-style', 'user gives a signature and spec'), the user MUST state a concrete, "
+        "self-contained problem directly. DO NOT open with 'Could you explain...', "
+        "'How does X work?', 'I've been studying...', or any other tutorial/learner framing "
+        "unless the description explicitly asks for it.\n"
         "- For technical topics (programming, code, frameworks, tools): assistant responses MUST "
-        "include practical, working code snippets. Code goes inside the conversation content as "
-        "plain text with inline formatting (e.g. ```python ... ```).\n"
+        "include practical, working code snippets inside ```...``` fences.\n"
         "- Write the entire conversation (user and assistant messages) in the same language as "
-        "the Topic. Do not switch languages mid-example.\n"
-        "- Make the user's question realistic — something a real developer would actually ask."
+        "the Topic. Do not switch languages mid-example."
     )
+    desc_block = f"Category description: {category_description}\n" if category_description else ""
     user = (
         f"Generate ONE training example for fine-tuning a language model.\n\n"
         f"Category: {category_name}\n"
+        f"{desc_block}"
         f"Topic: {topic}\n"
         f"Outline to cover:\n{outline_text}\n\n"
         f"Target length: approximately {token_guideline} tokens of combined content.\n"

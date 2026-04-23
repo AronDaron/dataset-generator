@@ -90,3 +90,6 @@ frontend/tsconfig.tsbuildinfo
 
 # Temp
 *.tmp
+
+# Release notes (local draft, not tracked)
+RELEASE_NOTES.md

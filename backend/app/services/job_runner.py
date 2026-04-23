@@ -278,7 +278,27 @@ async def _generate_and_validate_example(
                 continue
             return None
 
-        raw = _extract_content(response)
+        try:
+            raw = _extract_content(response)
+        except ValueError as exc:
+            response_keys = (
+                list(response.keys()) if isinstance(response, dict)
+                else type(response).__name__
+            )
+            logger.warning(
+                "[gen-fail] invalid response structure: model=%s provider=%s attempt=%d err=%s keys=%s",
+                model, provider_tag, attempt + 1, exc, response_keys,
+            )
+            if job_id:
+                log_event(
+                    job_id, "generation_invalid_structure",
+                    category=category, attempt=attempt + 1,
+                    model=model, provider=provider_tag,
+                )
+            if attempt == 0:
+                continue
+            return None
+
         if not raw:
             finish_reason = (response.get("choices") or [{}])[0].get("finish_reason")
             msg = ((response.get("choices") or [{}])[0].get("message") or {})
@@ -472,7 +492,7 @@ async def _generate_outline(
     provider: str | None = None,
     overhead: dict | None = None,
 ) -> list[str]:
-    messages = build_outline_generation_prompt(cat.name, topic)
+    messages = build_outline_generation_prompt(cat.name, topic, category_description=cat.description)
 
     try:
         response = await chat_completion(
@@ -566,6 +586,7 @@ async def _generate_example(
         output_format=config.format,
         max_tokens=config.max_tokens,
         conversation_turns=config.conversation_turns,
+        category_description=cat.description,
     )
     return await _generate_and_validate_example(
         api_key=api_key,
