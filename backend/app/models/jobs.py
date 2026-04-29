@@ -20,7 +20,7 @@ class CategoryConfig(BaseModel):
 
 
 class JobConfig(BaseModel):
-    categories: List[CategoryConfig] = Field(..., min_length=1, max_length=10)
+    categories: List[CategoryConfig] = Field(..., min_length=1, max_length=64)
     # Upper bound matches MAX_MERGE_EXAMPLES so merged jobs (which can reach
     # 500k) can still be deserialized. User-facing create_job enforces a
     # tighter cap (10_000) explicitly in the endpoint.
