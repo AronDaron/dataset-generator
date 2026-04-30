@@ -19,6 +19,7 @@ from app.config import settings
 from app.models.jobs import CategoryProgress, MergeRequest, ProgressJson
 from app.routers.jobs import _fetch_source_configs, _is_merged, _resolve_leaf_sources
 from app.services.event_log import log_event
+from app.services.example_schema import serialize_for_jsonl
 from app.services.job_runner import (
     _CancelledError,
     _running_jobs,
@@ -51,12 +52,16 @@ _MERGE_EXAMPLE_INSERT_SQL = (
 )
 
 
-def _jsonl_line(content_json: str) -> str:
-    """Fast-path JSONL line. content_json is already minified by _save_example;
-    defensive round-trip kicks in only for legacy rows with embedded newlines."""
-    if "\n" in content_json:
-        return json.dumps(json.loads(content_json), ensure_ascii=False)
-    return content_json
+def _jsonl_line(content_json: str, fmt: str) -> tuple[str, list[str]]:
+    """JSONL line with defensive schema strip.
+
+    Returns ``(line_without_newline, dropped_paths)``. Goes through
+    ``serialize_for_jsonl`` so it shares behavior with ``export_service``:
+    extra top-level and per-turn keys outside the format whitelist are
+    pruned. For rows produced by the strict validator the strip is a no-op,
+    so the cost is just the json round-trip already needed for legacy rows
+    with embedded newlines."""
+    return serialize_for_jsonl(content_json, fmt)
 
 
 def _make_merged_progress(total: int, stage: str) -> ProgressJson:
@@ -317,6 +322,7 @@ async def _merge_job_task(
 
         copied = 0
         insert_buffer: list[tuple] = []
+        merge_strip_count = 0
 
         async def _flush_insert_buffer() -> None:
             nonlocal copied
@@ -341,7 +347,10 @@ async def _merge_job_task(
                     if is_cancelled(merged_job_id):
                         raise _CancelledError()
                     insert_buffer.append(_row_to_params(ex, merged_job_id))
-                    fh.write(_jsonl_line(ex["content_json"]) + "\n")
+                    line, dropped = _jsonl_line(ex["content_json"], ex["format"])
+                    fh.write(line + "\n")
+                    if dropped:
+                        merge_strip_count += 1
                     if len(insert_buffer) >= _MERGE_INSERT_BATCH:
                         await _flush_insert_buffer()
                 await _flush_insert_buffer()
@@ -362,7 +371,10 @@ async def _merge_job_task(
                         # we've seen so far so the UI shows a sane fraction.
                         progress.categories[cat_name].target = cat_counts[cat_name]
                         insert_buffer.append(_row_to_params(ex, merged_job_id))
-                        fh.write(_jsonl_line(ex["content_json"]) + "\n")
+                        line, dropped = _jsonl_line(ex["content_json"], ex["format"])
+                        fh.write(line + "\n")
+                        if dropped:
+                            merge_strip_count += 1
                         if len(insert_buffer) >= _MERGE_INSERT_BATCH:
                             await _flush_insert_buffer()
                 await _flush_insert_buffer()
@@ -372,6 +384,16 @@ async def _merge_job_task(
                     progress.categories[cat_name].completed = count
 
         await db.commit()
+
+        if merge_strip_count:
+            logger.warning(
+                "Merge %s: stripped extra keys from %d rows during JSONL export",
+                merged_job_id, merge_strip_count,
+            )
+            log_event(
+                merged_job_id, "merge_strip_extra_keys",
+                rows_affected=merge_strip_count,
+            )
 
         # --- Export phase ---
         # JSONL was written inline during copy; the event is still fired for

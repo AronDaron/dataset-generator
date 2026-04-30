@@ -61,6 +61,7 @@ _TEMPLATES: dict[str, tuple[Level, str]] = {
     "merge_completed":               ("info",  "Merge complete — {total} examples"),
     "merge_failed":                  ("error", "Merge failed: {error}"),
     "merge_shuffle_skipped_large":   ("warn",  "Shuffle skipped — {total} exceeds {threshold} limit"),
+    "merge_strip_extra_keys":        ("warn",  "Stripped extra keys from {rows_affected} rows during merge"),
 }
 
 

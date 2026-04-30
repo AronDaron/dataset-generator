@@ -13,6 +13,7 @@ import aiosqlite
 from app.models.jobs import CategoryConfig, CategoryProgress, JobConfig, JudgeStats, ProgressJson
 from app.utils import now_iso as _now_iso
 from app.services.event_log import log_event
+from app.services.example_schema import validate_example
 from app.services.export_service import export_job
 from app.services.openrouter_client import OpenRouterError, chat_completion
 from app.services.prompt_builder import (
@@ -159,60 +160,17 @@ def _extract_usage(response: dict) -> dict:
     }
 
 
-def _validate_example_structure(parsed: dict, fmt: str) -> bool:
-    """Check that a parsed example has valid structure for the given format.
+def _validate_example_structure(parsed: Any, fmt: str) -> tuple[bool, str | None, str | None]:
+    """Strict structural check delegating to example_schema.validate_example.
 
-    Returns True if valid, False otherwise.
+    Returns ``(ok, reason, detail)``. On success ``reason`` and ``detail`` are
+    ``None``. On failure ``reason`` is one of the codes listed in
+    ``example_schema.ValidationResult`` and ``detail`` is a human-readable
+    description (e.g. ``"extra top-level keys: ['gpt']"``) suitable for logs
+    and the activity event meta.
     """
-    if not isinstance(parsed, dict):
-        return False
-
-    if fmt == "alpaca":
-        if not isinstance(parsed.get("instruction"), str) or not parsed["instruction"].strip():
-            return False
-        if not isinstance(parsed.get("output"), str) or not parsed["output"].strip():
-            return False
-        if "input" in parsed and not isinstance(parsed["input"], str):
-            return False
-        return True
-
-    if fmt == "sharegpt":
-        convos = parsed.get("conversations")
-        if not isinstance(convos, list) or len(convos) < 2:
-            return False
-        expected_roles = ("human", "gpt")
-        for i, turn in enumerate(convos):
-            if not isinstance(turn, dict):
-                return False
-            role = turn.get("from")
-            value = turn.get("value")
-            if not isinstance(role, str) or not isinstance(value, str):
-                return False
-            if role not in expected_roles:
-                return False
-            if role != expected_roles[i % 2]:
-                return False
-        return True
-
-    if fmt == "chatml":
-        msgs = parsed.get("messages")
-        if not isinstance(msgs, list) or len(msgs) < 2:
-            return False
-        expected_roles = ("user", "assistant")
-        for i, turn in enumerate(msgs):
-            if not isinstance(turn, dict):
-                return False
-            role = turn.get("role")
-            content = turn.get("content")
-            if not isinstance(role, str) or not isinstance(content, str):
-                return False
-            if role not in expected_roles:
-                return False
-            if role != expected_roles[i % 2]:
-                return False
-        return True
-
-    return True
+    result = validate_example(parsed, fmt)
+    return result["ok"], result["reason"], result["detail"]
 
 
 async def _generate_and_validate_example(
@@ -335,10 +293,12 @@ async def _generate_and_validate_example(
                 continue
             return None
 
-        if not _validate_example_structure(parsed, output_format):
+        ok, reason, detail = _validate_example_structure(parsed, output_format)
+        if not ok:
             logger.warning(
-                "[gen-fail] invalid structure: model=%s provider=%s attempt=%d format=%s parsed_keys=%s preview=%.300s",
-                model, provider_tag, attempt + 1, output_format,
+                "[gen-fail] invalid structure: model=%s provider=%s attempt=%d "
+                "format=%s reason=%s detail=%s parsed_keys=%s preview=%.300s",
+                model, provider_tag, attempt + 1, output_format, reason, detail,
                 list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__,
                 json.dumps(parsed, ensure_ascii=False)[:300],
             )
@@ -347,6 +307,7 @@ async def _generate_and_validate_example(
                     job_id, "generation_invalid_structure",
                     category=category, attempt=attempt + 1,
                     model=model, provider=provider_tag, format=output_format,
+                    reason=reason, detail=detail,
                 )
             if attempt == 0:
                 continue
