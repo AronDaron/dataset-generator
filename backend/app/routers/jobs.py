@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from app.config import settings
 from app.database import get_db
-from app.utils import get_api_key as _get_api_key, now_iso as _now_iso
+from app.utils import now_iso as _now_iso
 
 from app.models.jobs import (
     CategoryProgress,
@@ -31,6 +31,7 @@ from app.models.jobs import (
     RunSummary,
 )
 from app.services.dedup_service import find_duplicates
+from app.services.embedding_service import resolve_embedding_provider_id
 from app.services.event_log import clear_events, get_events
 from app.services.export_service import export_job
 from app.services.job_runner import (
@@ -41,7 +42,11 @@ from app.services.job_runner import (
     resume_job,
     run_job,
 )
-from app.services.openrouter_client import list_models
+from app.services.llm.registry import (
+    ProviderDisabledError,
+    ProviderNotFoundError,
+    get_provider,
+)
 from app.services.stats_service import compute_stats_snapshot, snapshot_to_response_parts
 
 router = APIRouter()
@@ -271,7 +276,6 @@ async def create_job(
                 f"generation job. For larger datasets, generate in chunks and merge."
             ),
         )
-    api_key = await _get_api_key(db)
 
     # Resolve delay, retry_count, retry_cooldown from global settings if not provided in body
     keys = ('delay_between_requests', 'retry_count', 'retry_cooldown')
@@ -293,6 +297,24 @@ async def create_job(
         "retry_count": resolved_retry_count,
         "retry_cooldown": resolved_retry_cooldown,
     })
+
+    # Resolve every (gen, judge) provider this job will need up front. We check
+    # each one is enabled now so the API rejects the request with a useful 422
+    # instead of silently spawning a background task that will explode in
+    # _resolve_category_providers a few hundred ms later.
+    required_pids: set[str | None] = set()
+    for cat in config.categories:
+        required_pids.add(cat.provider_id or config.provider_id)
+        if config.judge_enabled:
+            required_pids.add(
+                cat.judge_provider_id or config.judge_provider_id
+                or cat.provider_id or config.provider_id
+            )
+    for pid in required_pids:
+        try:
+            await get_provider(db, pid)
+        except (ProviderNotFoundError, ProviderDisabledError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     job_id = str(uuid.uuid4())
     now = _now_iso()
@@ -317,7 +339,7 @@ async def create_job(
     )
     await db.commit()
 
-    asyncio.create_task(run_job(job_id, config, api_key))
+    asyncio.create_task(run_job(job_id, config))
 
     return JobResponse(
         id=job_id,
@@ -401,32 +423,39 @@ async def resume_job_endpoint(
         )
 
     config = JobConfig.model_validate_json(row["config_json"])
-    api_key = await _get_api_key(db)
 
-    try:
-        available = await list_models(api_key)
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"Cannot verify models: {exc}") from exc
-    available_ids = {m.get("id") for m in available}
-
-    required_gen = {cat.model or config.model for cat in config.categories}
-    missing_gen = [m for m in required_gen if m not in available_ids]
-    if missing_gen:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Cannot resume: model(s) no longer available on OpenRouter: {', '.join(missing_gen)}",
-        )
-
+    # Validate that every required (provider, model) pair still resolves and the
+    # provider is reachable + advertises the model. Multi-provider jobs fan out
+    # across whichever backends each category points to, so we group lookups
+    # by provider_id to avoid N redundant `/models` round trips.
+    required: dict[str | None, set[str]] = {}
+    for cat in config.categories:
+        gid = cat.provider_id or config.provider_id
+        required.setdefault(gid, set()).add(cat.model or config.model)
     if config.judge_enabled:
-        required_judge = {
-            cat.judge_model or config.judge_model or config.model
-            for cat in config.categories
-        }
-        missing_judge = [m for m in required_judge if m and m not in available_ids]
-        if missing_judge:
+        for cat in config.categories:
+            jid = (
+                cat.judge_provider_id
+                or config.judge_provider_id
+                or cat.provider_id
+                or config.provider_id
+            )
+            jm = cat.judge_model or config.judge_model or config.model
+            if jm:
+                required.setdefault(jid, set()).add(jm)
+
+    for prov_id, models_required in required.items():
+        try:
+            prov = await get_provider(db, prov_id)
+            available = await prov.list_models()
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Cannot verify models: {exc}") from exc
+        available_ids = {m.id for m in available}
+        missing = [m for m in models_required if m not in available_ids]
+        if missing:
             raise HTTPException(
                 status_code=422,
-                detail=f"Cannot resume: judge model(s) no longer available: {', '.join(missing_judge)}",
+                detail=f"Cannot resume: model(s) no longer available on provider {prov_id or 'default'}: {', '.join(missing)}",
             )
 
     now = _now_iso()
@@ -436,7 +465,7 @@ async def resume_job_endpoint(
     )
     await db.commit()
 
-    asyncio.create_task(resume_job(job_id, api_key))
+    asyncio.create_task(resume_job(job_id))
 
     async with await db.execute(
         "SELECT id, status, config_json, progress_json, created_at, updated_at "
@@ -1059,16 +1088,18 @@ async def find_duplicate_examples(
             ),
         )
 
-    # Fetch API key and embedding model from settings
-    api_key = await _get_api_key(db)
-
     async with await db.execute(
         "SELECT value FROM settings WHERE key = 'embedding_model'"
     ) as cur:
         em_row = await cur.fetchone()
     embedding_model = (em_row["value"] if em_row and em_row["value"] else "openai/text-embedding-3-small")
 
-    pairs = await find_duplicates(db, job_id, body.threshold, api_key, embedding_model)
+    embed_provider_id = await resolve_embedding_provider_id(db)
+    provider = await get_provider(db, embed_provider_id)
+    pairs = await find_duplicates(
+        db, job_id, body.threshold,
+        provider=provider, embedding_model=embedding_model,
+    )
     return DuplicatesResponse(pairs=pairs, total_examples=total)
 
 

@@ -185,10 +185,16 @@ async def find_duplicates(
     db: aiosqlite.Connection,
     job_id: str,
     threshold: float = 0.85,
-    api_key: str = "",
+    *,
+    provider=None,
     embedding_model: str = "openai/text-embedding-3-small",
 ) -> list[DuplicatePairResponse]:
-    """Find duplicate example pairs using embedding cosine similarity."""
+    """Find duplicate example pairs using embedding cosine similarity.
+
+    `provider` is an LLMProvider instance — pass the one resolved from
+    `embedding_provider_id` setting (or the default). Required for any non-empty
+    job; only the early-return below skips it.
+    """
 
     async with await db.execute(
         "SELECT id, content_json, format, tokens, judge_score "
@@ -200,10 +206,12 @@ async def find_duplicates(
     if len(rows) < 2:
         return []
 
+    if provider is None:
+        raise ValueError("dedup requires an LLMProvider for embeddings")
+
     texts = [extract_text(row["content_json"], row["format"]) for row in rows]
 
-    # Get embeddings from API
-    embeddings = await get_embeddings(api_key, embedding_model, texts)
+    embeddings = await get_embeddings(provider, embedding_model, texts)
 
     # Small N: full N×N matrix (lower overhead). Large N: block-wise avoids
     # allocating N² memory.

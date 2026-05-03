@@ -62,6 +62,8 @@ _TEMPLATES: dict[str, tuple[Level, str]] = {
     "merge_failed":                  ("error", "Merge failed: {error}"),
     "merge_shuffle_skipped_large":   ("warn",  "Shuffle skipped — {total} exceeds {threshold} limit"),
     "merge_strip_extra_keys":        ("warn",  "Stripped extra keys from {rows_affected} rows during merge"),
+    "provider_unreachable":          ("warn",  "Provider {provider} unreachable ({status_code})"),
+    "provider_response_invalid":     ("warn",  "Provider {provider} returned invalid response shape"),
 }
 
 

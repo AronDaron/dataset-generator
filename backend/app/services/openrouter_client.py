@@ -1,22 +1,52 @@
-import asyncio
-import logging
+"""Backwards-compatible facade over `app.services.llm.openrouter`.
+
+Existing call sites and tests import `chat_completion`, `list_models`, and
+`OpenRouterError` from this module. Internally everything now delegates to
+`OpenRouterProvider` so the legacy code path and the new provider abstraction
+share a single implementation. New code should import from `app.services.llm`.
+"""
+
+from __future__ import annotations
+
 from typing import Any
 
-import httpx
+from app.services.llm.base import LLMError
+from app.services.llm.openrouter import (
+    MAX_RETRIES,
+    OPENROUTER_BASE_URL,
+    REQUEST_TIMEOUT,
+    RETRY_COOLDOWN,
+    RETRYABLE_CODES,
+    OpenRouterProvider,
+)
 
-logger = logging.getLogger(__name__)
+__all__ = [
+    "MAX_RETRIES",
+    "OPENROUTER_BASE_URL",
+    "REQUEST_TIMEOUT",
+    "RETRY_COOLDOWN",
+    "RETRYABLE_CODES",
+    "OpenRouterError",
+    "chat_completion",
+    "list_models",
+]
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-MAX_RETRIES = 3
-RETRY_COOLDOWN = 15  # seconds
-RETRYABLE_CODES = {429, 500, 503}
-REQUEST_TIMEOUT = 480.0  # seconds — DeepSeek V3.2 at 11 tps × 4096 tokens ≈ 370s; 480s gives safe margin
+
+class OpenRouterError(LLMError):
+    """Legacy alias kept for tests and call sites that catch this name.
+
+    Subclass of LLMError so `except LLMError` and `except OpenRouterError` both
+    catch it. Constructor signature matches the original positional form.
+    """
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(status_code, message, provider_kind="openrouter")
 
 
-class OpenRouterError(Exception):
-    def __init__(self, status_code: int, message: str):
-        self.status_code = status_code
-        super().__init__(f"OpenRouter {status_code}: {message}")
+def _adapt_llm_error(exc: LLMError) -> OpenRouterError:
+    """Re-raise an LLMError as the legacy OpenRouterError so call sites that
+    `except OpenRouterError` keep working."""
+    return OpenRouterError(exc.status_code, str(exc).split(": ", 1)[-1])
 
 
 async def chat_completion(
@@ -29,109 +59,27 @@ async def chat_completion(
     retry_cooldown: int = RETRY_COOLDOWN,
     provider: str | None = None,
 ) -> dict[str, Any]:
-    """Send a chat completion request to OpenRouter with retry logic.
-
-    Retries up to max_retries times on 429/500 with retry_cooldown seconds between attempts.
-    Pass values from DB config (GlobalConfig) to honour user settings.
-    Raises OpenRouterError on final failure or non-retryable error.
-    """
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost",
-        "X-Title": "DatasetGenerator",
-    }
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
-    if provider:
-        payload["provider"] = {"order": [provider], "allow_fallbacks": False}
-        logger.debug("Provider routing: model=%s provider=%s", model, provider)
-    last_error: OpenRouterError | None = None
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-        for attempt in range(max_retries):
-            try:
-                r = await client.post(
-                    f"{OPENROUTER_BASE_URL}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                )
-            except httpx.TimeoutException:
-                logger.warning(
-                    "OpenRouter request timed out after %.0fs (attempt %d/%d, model=%s)",
-                    REQUEST_TIMEOUT, attempt + 1, max_retries, model,
-                )
-                last_error = OpenRouterError(408, f"Request timed out after {REQUEST_TIMEOUT:.0f}s")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_cooldown)
-                continue
-            except httpx.NetworkError as exc:
-                logger.warning(
-                    "OpenRouter network error (attempt %d/%d, model=%s): %s",
-                    attempt + 1, max_retries, model, exc,
-                )
-                last_error = OpenRouterError(503, f"Network error: {exc}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_cooldown)
-                continue
-
-            if r.status_code == 200:
-                return r.json()
-            if r.status_code in RETRYABLE_CODES:
-                last_error = OpenRouterError(r.status_code, r.text)
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_cooldown)
-                continue
-            # Non-retryable error (401, 403, 422, etc.) — raise immediately
-            logger.error(
-                "OpenRouter non-retryable error %d (model=%s): %s",
-                r.status_code, model, r.text[:200],
-            )
-            raise OpenRouterError(r.status_code, r.text)
-    assert last_error is not None
-    raise last_error
+    """Send a chat completion via the default OpenRouter provider."""
+    prov = OpenRouterProvider(api_key)
+    try:
+        return await prov.chat(
+            model,
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            max_retries=max_retries,
+            retry_cooldown=retry_cooldown,
+            provider_route=provider,
+        )
+    except LLMError as exc:
+        raise _adapt_llm_error(exc) from exc
 
 
 async def list_models(api_key: str) -> list[dict[str, Any]]:
-    """Fetch available models from OpenRouter with retry logic."""
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "HTTP-Referer": "http://localhost",
-        "X-Title": "DatasetGenerator",
-    }
-    last_error: OpenRouterError | None = None
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        for attempt in range(MAX_RETRIES):
-            try:
-                r = await client.get(f"{OPENROUTER_BASE_URL}/models", headers=headers)
-            except httpx.TimeoutException:
-                logger.warning(
-                    "Model list request timed out (attempt %d/%d)",
-                    attempt + 1, MAX_RETRIES,
-                )
-                last_error = OpenRouterError(408, "Model list request timed out")
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(RETRY_COOLDOWN)
-                continue
-            except httpx.NetworkError as exc:
-                logger.warning(
-                    "Model list network error (attempt %d/%d): %s",
-                    attempt + 1, MAX_RETRIES, exc,
-                )
-                last_error = OpenRouterError(503, f"Network error: {exc}")
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(RETRY_COOLDOWN)
-                continue
-            if r.status_code == 200:
-                return r.json().get("data", [])
-            if r.status_code in RETRYABLE_CODES:
-                last_error = OpenRouterError(r.status_code, r.text)
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(RETRY_COOLDOWN)
-                continue
-            raise OpenRouterError(r.status_code, r.text)
-    assert last_error is not None
-    raise last_error
+    """Fetch model list (raw payload list) from OpenRouter."""
+    prov = OpenRouterProvider(api_key)
+    try:
+        models = await prov.list_models()
+    except LLMError as exc:
+        raise _adapt_llm_error(exc) from exc
+    return [m.raw for m in models]

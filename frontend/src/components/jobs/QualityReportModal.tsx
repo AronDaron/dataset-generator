@@ -108,7 +108,7 @@ function buildCsv(stats: JobStats): string {
     lines.push('')
   }
 
-  lines.push('# Token Length by Category')
+  lines.push('# Output Tokens by Category')
   lines.push('Category,Examples,Avg Tokens,Min Tokens,Max Tokens')
   for (const t of stats.token_stats) {
     lines.push(`${t.category},${t.examples_count},${t.avg_tokens},${t.min_tokens},${t.max_tokens}`)
@@ -437,7 +437,11 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
 
                 {/* Token Length by Category — always shown */}
                 <div className="rounded-xl border border-border bg-bg-0 p-5">
-                  <SectionHeader>Token Length by Category</SectionHeader>
+                  <SectionHeader>Output Tokens by Category</SectionHeader>
+                  <p className="mb-3 text-xs text-text-3">
+                    Generated tokens per example (output only). Matches the per-example
+                    counts in the dataset preview.
+                  </p>
                   {stats.token_stats.length === 0 ? (
                     <p className="text-xs text-text-3">No examples found.</p>
                   ) : (
@@ -447,7 +451,7 @@ export function QualityReportModal({ open, onClose, jobId }: QualityReportModalP
                           <tr className="border-b border-border text-[11px] uppercase tracking-widest text-text-3">
                             <th className="pb-2 pr-4 font-medium">Category</th>
                             <th className="pb-2 pr-4 text-center font-medium">Examples</th>
-                            <th className="pb-2 pr-4 text-center font-medium">Avg Tokens</th>
+                            <th className="pb-2 pr-4 text-center font-medium">Avg Output</th>
                             <th className="pb-2 pr-4 text-center font-medium">Min</th>
                             <th className="pb-2 text-center font-medium">Max</th>
                           </tr>

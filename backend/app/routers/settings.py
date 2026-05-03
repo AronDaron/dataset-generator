@@ -69,13 +69,15 @@ async def save_api_key(
     body: ApiKeyRequest,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> None:
+    """Legacy shim — writes the OpenRouter key into the providers row.
+
+    The migration always seeds an `openrouter-default` row (disabled when no
+    legacy key existed), so the UPDATE here is enough to make the existing
+    frontend "API Key" tab keep working until it migrates to /api/providers.
+    """
     await db.execute(
-        """
-        INSERT INTO settings (key, value, updated_at)
-        VALUES ('openrouter_api_key', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-        """,
-        (body.api_key, _now_iso()),
+        "UPDATE providers SET api_key = ?, enabled = 1 WHERE id = 'openrouter-default'",
+        (body.api_key,),
     )
     await db.commit()
 
@@ -83,19 +85,21 @@ async def save_api_key(
 @router.get("/api-key", response_model=ApiKeyResponse)
 async def get_api_key(db: aiosqlite.Connection = Depends(get_db)) -> ApiKeyResponse:
     async with await db.execute(
-        "SELECT value FROM settings WHERE key = 'openrouter_api_key'"
+        "SELECT api_key FROM providers WHERE id = 'openrouter-default'"
     ) as cursor:
         row = await cursor.fetchone()
-    if not row:
+    if not row or not row["api_key"]:
         return ApiKeyResponse(has_key=False)
-    key: str = row["value"]
+    key: str = row["api_key"]
     preview = f"...{key[-4:]}" if len(key) >= 4 else "...****"
     return ApiKeyResponse(has_key=True, key_preview=preview)
 
 
 @router.delete("/api-key", status_code=204)
 async def delete_api_key(db: aiosqlite.Connection = Depends(get_db)) -> None:
-    await db.execute("DELETE FROM settings WHERE key = 'openrouter_api_key'")
+    await db.execute(
+        "UPDATE providers SET api_key = NULL, enabled = 0 WHERE id = 'openrouter-default'"
+    )
     await db.commit()
 
 

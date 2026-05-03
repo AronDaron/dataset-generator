@@ -72,14 +72,18 @@ async def compute_stats_snapshot(
 
     Safe to call multiple times — purely read-only against the DB.
     """
-    # Token stats by category
+    # Token stats by category — output only (completion_tokens), so the
+    # Quality Report agrees with the per-example `tokens` column shown in
+    # the dataset preview. Earlier we summed prompt+completion, which made
+    # the same example look like 80 tokens in the list and 655 in the
+    # report.
     async with await db.execute(
         "SELECT "
         "  CASE WHEN category = '' THEN 'Unknown' ELSE category END AS cat, "
         "  COUNT(*) AS cnt, "
-        "  ROUND(AVG(prompt_tokens + completion_tokens), 1) AS avg_tok, "
-        "  MIN(prompt_tokens + completion_tokens) AS min_tok, "
-        "  MAX(prompt_tokens + completion_tokens) AS max_tok "
+        "  ROUND(AVG(completion_tokens), 1) AS avg_tok, "
+        "  MIN(completion_tokens) AS min_tok, "
+        "  MAX(completion_tokens) AS max_tok "
         "FROM examples WHERE job_id = ? "
         "GROUP BY cat ORDER BY cat",
         (job_id,),

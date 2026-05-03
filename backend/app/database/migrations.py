@@ -75,12 +75,75 @@ async def _migration_v5(db: aiosqlite.Connection) -> None:
     await db.execute("ALTER TABLE jobs ADD COLUMN stats_json TEXT")
 
 
+async def _migration_v6(db: aiosqlite.Connection) -> None:
+    """Introduce `providers` table and migrate the legacy single OpenRouter key.
+
+    Pre-v6 the only LLM endpoint was OpenRouter, configured by a single row
+    `settings.openrouter_api_key`. v6 turns that into a generic registry so
+    the same job runner can target Ollama / LM Studio / any OpenAI-compatible
+    backend without touching settings semantics.
+
+    Backfill rules:
+      * If a legacy openrouter_api_key exists → INSERT it as the default,
+        enabled openrouter provider, then DELETE the old row.
+      * If no legacy key → INSERT a disabled placeholder so UI has something
+        to show and edit instead of an entirely empty providers list.
+    """
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS providers (
+            id          TEXT PRIMARY KEY,
+            kind        TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            base_url    TEXT NOT NULL,
+            api_key     TEXT,
+            enabled     INTEGER NOT NULL DEFAULT 1,
+            is_default  INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+        )
+        """
+    )
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_providers_default "
+        "ON providers(is_default) WHERE is_default = 1"
+    )
+
+    async with await db.execute(
+        "SELECT value FROM settings WHERE key = 'openrouter_api_key'"
+    ) as cur:
+        row = await cur.fetchone()
+    legacy_key = row[0] if row else None
+
+    await db.execute(
+        """
+        INSERT OR IGNORE INTO providers
+            (id, kind, name, base_url, api_key, enabled, is_default)
+        VALUES
+            (?, 'openrouter', 'OpenRouter', 'https://openrouter.ai/api/v1', ?, ?, 1)
+        """,
+        ("openrouter-default", legacy_key, 1 if legacy_key else 0),
+    )
+
+    if legacy_key:
+        await db.execute("DELETE FROM settings WHERE key = 'openrouter_api_key'")
+
+
+async def _migration_v7(db: aiosqlite.Connection) -> None:
+    """Invalidate cached Quality Report snapshots so token stats agree with
+    the per-example `tokens` column (output only) instead of summing
+    prompt+completion. Next stats fetch recomputes from examples.
+    """
+    await db.execute("UPDATE jobs SET stats_json = NULL WHERE stats_json IS NOT NULL")
+
+
 VERSIONED_MIGRATIONS = [
     _migration_v1,
     _migration_v2,
     _migration_v3,
     _migration_v4,
     _migration_v5,
+    _migration_v6,
+    _migration_v7,
 ]
 
 

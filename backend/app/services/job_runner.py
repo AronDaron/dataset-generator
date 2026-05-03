@@ -15,13 +15,14 @@ from app.utils import now_iso as _now_iso
 from app.services.event_log import log_event
 from app.services.example_schema import validate_example
 from app.services.export_service import export_job
-from app.services.openrouter_client import OpenRouterError, chat_completion
+from app.services.llm.base import LLMError, LLMProvider
+from app.services.llm.registry import get_provider
 from app.services.prompt_builder import (
     build_example_generation_prompt,
     build_outline_generation_prompt,
     build_topic_generation_prompt,
 )
-from app.services.token_counter import count_tokens, effective_limit
+from app.services.token_counter import count_tokens, effective_limit  # noqa: F401  (re-exported for tests)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 _cancelled_jobs: set[str] = set()
 _running_jobs: set[str] = set()
+# Live asyncio.Task per running job. Used to break out of in-flight provider
+# calls (httpx) so cancel feels instant instead of waiting up to REQUEST_TIMEOUT
+# (480s) for the current chat() to return on its own.
+_job_tasks: dict[str, "asyncio.Task[None]"] = {}
 
 TOPIC_BATCH_SIZE = 10
 _judge_semaphore = asyncio.Semaphore(3)
@@ -38,15 +43,35 @@ _gen_semaphore = asyncio.Semaphore(10)
 
 # Reasoning models (Qwen3, Gemma 4, Devstral, Mistral Small 2603) can consume
 # a large share of max_tokens on <think> blocks before generating content.
-# We send 2× the user-facing budget to the API so reasoning fits in the
-# overflow half, while the prompt still targets ~70% of the user value.
-# _extract_usage strips reasoning tokens, so the "over budget" check still
-# enforces the user's intent on actual content size.
-API_TOKEN_MULTIPLIER = 2
+# We send 2× the user-facing budget to providers that support reasoning so
+# reasoning fits in the overflow half, while the prompt still targets ~70% of
+# the user value. Local providers (Ollama, LM Studio) advertise no reasoning,
+# so the multiplier resolves to 1× and we don't waste tokens.
+API_TOKEN_MULTIPLIER_REASONING = 2
+API_TOKEN_MULTIPLIER_PLAIN = 1
+
+
+def _api_token_multiplier(provider: LLMProvider) -> int:
+    return (
+        API_TOKEN_MULTIPLIER_REASONING
+        if provider.capabilities.supports_reasoning
+        else API_TOKEN_MULTIPLIER_PLAIN
+    )
 
 
 def cancel_job(job_id: str) -> None:
+    """Mark a job cancelled and interrupt its in-flight provider call.
+
+    Setting the flag alone only stops the loop *between* LLM calls — fine for
+    cloud APIs that answer in seconds, miserable for a local 14B model that
+    can sit on a single chat() for minutes. Calling task.cancel() propagates
+    asyncio.CancelledError into the awaiting httpx request so the connection
+    is torn down immediately and run_job's except branch finalises the job.
+    """
     _cancelled_jobs.add(job_id)
+    task = _job_tasks.get(job_id)
+    if task is not None and not task.done():
+        task.cancel()
 
 
 def is_cancelled(job_id: str) -> bool:
@@ -119,7 +144,7 @@ _THINK_RE = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
 
 
 def _extract_content(response: dict) -> str:
-    """Return the text content from an OpenRouter response, stripped of think blocks.
+    """Return the text content from an LLM response, stripped of think blocks.
 
     Handles:
     - None content (models that put reasoning in a separate 'reasoning' field)
@@ -128,7 +153,7 @@ def _extract_content(response: dict) -> str:
     try:
         raw = response["choices"][0]["message"].get("content") or ""
     except (KeyError, IndexError, TypeError) as exc:
-        raise ValueError(f"Invalid OpenRouter response structure: {exc}") from exc
+        raise ValueError(f"Invalid LLM response structure: {exc}") from exc
     return _THINK_RE.sub("", raw).strip()
 
 
@@ -146,7 +171,7 @@ def _inject_conciseness_hint(messages: list[dict], target_tokens: int) -> list[d
 
 
 def _extract_usage(response: dict) -> dict:
-    """Extract prompt_tokens and completion_tokens from OpenRouter response.
+    """Extract prompt_tokens and completion_tokens from an LLM response.
 
     Subtracts reasoning tokens from completion_tokens so that only real
     output tokens are counted (for display, cost, and limit checks).
@@ -161,53 +186,57 @@ def _extract_usage(response: dict) -> dict:
 
 
 def _validate_example_structure(parsed: Any, fmt: str) -> tuple[bool, str | None, str | None]:
-    """Strict structural check delegating to example_schema.validate_example.
-
-    Returns ``(ok, reason, detail)``. On success ``reason`` and ``detail`` are
-    ``None``. On failure ``reason`` is one of the codes listed in
-    ``example_schema.ValidationResult`` and ``detail`` is a human-readable
-    description (e.g. ``"extra top-level keys: ['gpt']"``) suitable for logs
-    and the activity event meta.
-    """
+    """Strict structural check delegating to example_schema.validate_example."""
     result = validate_example(parsed, fmt)
     return result["ok"], result["reason"], result["detail"]
 
 
 async def _generate_and_validate_example(
-    api_key: str,
+    provider: LLMProvider,
     model: str,
     messages: list[dict],
     temperature: float,
     max_tokens: int,
     retry_cooldown: int = 15,
-    provider: str | None = None,
+    provider_route: str | None = None,
     output_format: str = "sharegpt",
     job_id: str | None = None,
     category: str | None = None,
 ) -> tuple[dict, int, dict] | None:
     """
-    Call LLM, parse JSON, validate structure and token count.
+    Call the provider, parse JSON, validate structure and token count.
     On first attempt: full prompt.
     If token count exceeds effective_limit: one retry with conciseness hint.
     Returns (parsed_dict, token_count, usage_dict) or None.
     """
-    provider_tag = provider or "auto"
+    provider_tag = provider_route or "auto"
+    multiplier = _api_token_multiplier(provider)
+    last_was_reasoning_starved = False
     for attempt in range(2):
         if attempt == 1:
-            messages = _inject_conciseness_hint(messages, int(max_tokens * 0.8))
+            if last_was_reasoning_starved:
+                # Local reasoning model burned the entire ×2 budget on
+                # thinking and never got to write `content`. Conciseness
+                # hint can't help — the model never reaches the user
+                # message. Bump the budget instead so reasoning has room
+                # AND content can land. Triggered only for providers that
+                # don't surface reasoning_tokens (Ollama / LM Studio);
+                # OpenRouter reports the breakdown so we never get here.
+                multiplier *= 2
+            else:
+                messages = _inject_conciseness_hint(messages, int(max_tokens * 0.8))
 
         try:
-            response = await chat_completion(
-                api_key=api_key,
+            response = await provider.chat(
                 model=model,
                 messages=messages,
                 temperature=temperature,
-                max_tokens=max_tokens * API_TOKEN_MULTIPLIER,
+                max_tokens=max_tokens * multiplier,
                 max_retries=1,  # pipeline-level retry handles failures; avoid 3×480s compounding
                 retry_cooldown=retry_cooldown,
-                provider=provider,
+                provider_route=provider_route,
             )
-        except OpenRouterError as exc:
+        except LLMError as exc:
             logger.warning(
                 "[gen-fail] API error: model=%s provider=%s attempt=%d status=%s body=%.300s",
                 model, provider_tag, attempt + 1, exc.status_code, str(exc)[:300],
@@ -261,6 +290,22 @@ async def _generate_and_validate_example(
             finish_reason = (response.get("choices") or [{}])[0].get("finish_reason")
             msg = ((response.get("choices") or [{}])[0].get("message") or {})
             has_reasoning = bool(msg.get("reasoning"))
+            # Detect "reasoning starvation": the model emitted reasoning
+            # (separate field or a `<think>` tag we already stripped) AND
+            # ran out of budget AND the provider didn't break out
+            # reasoning_tokens for us. OpenRouter populates
+            # completion_tokens_details.reasoning_tokens, so this branch
+            # only fires for local OpenAI-compat backends. Flag triggers
+            # the ×4 budget retry on the next iteration.
+            raw_usage = response.get("usage") or {}
+            reasoning_reported = (raw_usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
+            if (
+                attempt == 0
+                and finish_reason == "length"
+                and has_reasoning
+                and not reasoning_reported
+            ):
+                last_was_reasoning_starved = True
             logger.warning(
                 "[gen-fail] empty content: model=%s provider=%s attempt=%d finish=%s has_reasoning=%s",
                 model, provider_tag, attempt + 1, finish_reason, has_reasoning,
@@ -388,7 +433,7 @@ async def _save_example(
 # ---------------------------------------------------------------------------
 
 async def _generate_topics(
-    api_key: str,
+    provider: LLMProvider,
     config: JobConfig,
     cat: CategoryConfig,
     count: int,
@@ -406,15 +451,14 @@ async def _generate_topics(
 
     for _ in range(2):
         try:
-            response = await chat_completion(
-                api_key=api_key,
+            response = await provider.chat(
                 model=effective_model,
                 messages=messages,
                 temperature=config.temperature,
                 max_tokens=min(2048, config.max_tokens),
                 max_retries=config.retry_count,
                 retry_cooldown=config.retry_cooldown,
-                provider=cat.provider,
+                provider_route=cat.provider,
             )
         except Exception:
             continue
@@ -445,26 +489,25 @@ async def _generate_topics(
 
 
 async def _generate_outline(
-    api_key: str,
+    provider: LLMProvider,
     config: JobConfig,
     cat: CategoryConfig,
     topic: str,
     model: str,
-    provider: str | None = None,
+    provider_route: str | None = None,
     overhead: dict | None = None,
 ) -> list[str]:
     messages = build_outline_generation_prompt(cat.name, topic, category_description=cat.description)
 
     try:
-        response = await chat_completion(
-            api_key=api_key,
+        response = await provider.chat(
             model=model,
             messages=messages,
             temperature=config.temperature,
             max_tokens=512,
             max_retries=config.retry_count,
             retry_cooldown=config.retry_cooldown,
-            provider=provider,
+            provider_route=provider_route,
         )
     except Exception:
         return []
@@ -492,12 +535,12 @@ _EMPTY_USAGE: dict = {"prompt_tokens": 0, "completion_tokens": 0}
 
 
 async def _judge_example(
+    provider: LLMProvider,
     content: dict,
     fmt: str,
     model: str,
-    api_key: str,
     judge_criteria: str = "relevance, coherence, naturalness, and educational value",
-    provider: str | None = None,
+    provider_route: str | None = None,
 ) -> tuple[int | None, dict]:
     """Call LLM judge to rate an example on 0-100 scale. Returns (score_or_None, usage_dict)."""
     judge_prompt = (
@@ -510,14 +553,13 @@ async def _judge_example(
         {"role": "user", "content": f"Example to evaluate:\n{json.dumps(content, ensure_ascii=False)}"},
     ]
     try:
-        response = await chat_completion(
-            api_key=api_key,
+        response = await provider.chat(
             model=model,
             messages=messages,
             temperature=0.1,
             max_tokens=1024,  # reasoning models (Qwen3) need space for <think> block
             max_retries=3,    # retry on 429/500 — judge score matters when judge is enabled
-            provider=provider,
+            provider_route=provider_route,
         )
         usage = _extract_usage(response)
         parsed = _parse_json_response(_extract_content(response))
@@ -531,13 +573,13 @@ async def _judge_example(
 
 
 async def _generate_example(
-    api_key: str,
+    provider: LLMProvider,
     config: JobConfig,
     cat: CategoryConfig,
     topic: str,
     outline: list[str],
     model: str,
-    provider: str | None = None,
+    provider_route: str | None = None,
     job_id: str | None = None,
 ) -> tuple[dict, int] | None:
     messages = build_example_generation_prompt(
@@ -550,13 +592,13 @@ async def _generate_example(
         category_description=cat.description,
     )
     return await _generate_and_validate_example(
-        api_key=api_key,
+        provider=provider,
         model=model,
         messages=messages,
         temperature=config.temperature,
         max_tokens=config.max_tokens,
         retry_cooldown=config.retry_cooldown,
-        provider=provider,
+        provider_route=provider_route,
         output_format=config.format,
         job_id=job_id,
         category=cat.name,
@@ -572,11 +614,39 @@ async def _generate_example(
 MAX_ATTEMPTS_PER_EXAMPLE = 5
 
 
+async def _resolve_category_providers(
+    db: aiosqlite.Connection,
+    cat: CategoryConfig,
+    config: JobConfig,
+) -> tuple[LLMProvider, LLMProvider | None]:
+    """Resolve gen + (optional) judge provider for a category.
+
+    Falls back through cat → job → default. The judge provider falls back to the
+    gen provider when the user didn't pick a different one — same model with a
+    different system prompt is the common case.
+    """
+    gen_id = cat.provider_id or config.provider_id
+    gen_provider = await get_provider(db, gen_id)
+
+    if not config.judge_enabled:
+        return gen_provider, None
+
+    judge_id = (
+        cat.judge_provider_id
+        or config.judge_provider_id
+        or cat.provider_id
+        or config.provider_id
+    )
+    judge_provider = await get_provider(db, judge_id)
+    return gen_provider, judge_provider
+
+
 async def _run_category(
     cat: CategoryConfig,
     count: int,
     config: JobConfig,
-    api_key: str,
+    gen_provider: LLMProvider,
+    judge_provider: LLMProvider | None,
     db: aiosqlite.Connection,
     job_id: str,
     progress: ProgressJson,
@@ -592,9 +662,9 @@ async def _run_category(
     max_attempts = cat_target * MAX_ATTEMPTS_PER_EXAMPLE
     total_attempts = 0
     effective_model = cat.model or config.model
-    effective_provider = cat.provider
+    effective_provider_route = cat.provider
     effective_judge_model = cat.judge_model or config.judge_model or config.model
-    effective_judge_provider = cat.judge_provider or config.judge_provider
+    effective_judge_provider_route = cat.judge_provider or config.judge_provider
 
     while progress.categories[cat.name].completed < cat_target and total_attempts < max_attempts:
         if is_cancelled(job_id):
@@ -609,7 +679,7 @@ async def _run_category(
             )
             log_event(job_id, "topics_exhausted_regenerating", category=cat.name, needed=needed)
             extra = await _generate_topics(
-                api_key, config, cat, min(TOPIC_BATCH_SIZE, needed),
+                gen_provider, config, cat, min(TOPIC_BATCH_SIZE, needed),
                 overhead=overhead, job_id=job_id,
             )
             topic_queue.extend(extra)
@@ -628,7 +698,7 @@ async def _run_category(
 
         async with _gen_semaphore:
             outline = await _generate_outline(
-                api_key, config, cat, topic, effective_model, effective_provider,
+                gen_provider, config, cat, topic, effective_model, effective_provider_route,
                 overhead=overhead
             )
         await asyncio.sleep(delay)
@@ -638,7 +708,7 @@ async def _run_category(
 
         async with _gen_semaphore:
             result = await _generate_example(
-                api_key, config, cat, topic, outline, effective_model, effective_provider,
+                gen_provider, config, cat, topic, outline, effective_model, effective_provider_route,
                 job_id=job_id,
             )
         await asyncio.sleep(delay)
@@ -665,7 +735,7 @@ async def _run_category(
         total_judge_prompt = 0
         total_judge_completion = 0
 
-        if config.judge_enabled:
+        if config.judge_enabled and judge_provider is not None:
             if progress.judge_stats is None:
                 progress.judge_stats = JudgeStats()
             accepted = False
@@ -679,9 +749,9 @@ async def _run_category(
                     raise _CancelledError()
                 async with _judge_semaphore:
                     score, judge_usage = await _judge_example(
-                        content, config.format, effective_judge_model, api_key,
+                        judge_provider, content, config.format, effective_judge_model,
                         judge_criteria=config.judge_criteria,
-                        provider=effective_judge_provider,
+                        provider_route=effective_judge_provider_route,
                     )
                 total_judge_prompt += judge_usage["prompt_tokens"]
                 total_judge_completion += judge_usage["completion_tokens"]
@@ -776,7 +846,6 @@ async def _run_category(
 async def run_job(
     job_id: str,
     config: JobConfig,
-    api_key: str,
     resume_progress: ProgressJson | None = None,
 ) -> None:
     """
@@ -794,6 +863,11 @@ async def run_job(
             - Safety limit: at most MAX_ATTEMPTS_PER_EXAMPLE × target
               attempts per category (prevents infinite loop on total failure).
 
+    Provider resolution:
+      - Per-category gen + judge providers are resolved from the DB once before
+        the parallel stage starts, so a single provider lookup serves the whole
+        category run.
+
     Progress and status are persisted to SQLite after every example.
     Checks is_cancelled(job_id) before each LLM call.
 
@@ -806,6 +880,11 @@ async def run_job(
     if job_id in _running_jobs:
         raise AlreadyRunningError(f"Job {job_id} is already running")
     _running_jobs.add(job_id)
+    # Register the running task so cancel_job() can interrupt in-flight LLM
+    # calls instead of waiting for them to time out.
+    current_task = asyncio.current_task()
+    if current_task is not None:
+        _job_tasks[job_id] = current_task
 
     db = await get_db()
     counts = distribute_examples(config.categories, config.total_examples)
@@ -831,6 +910,11 @@ async def run_job(
     overhead: dict = {}  # accumulates topic + outline usage for cost calculation
 
     try:
+        # ── Resolve providers per category up front ───────────────────────
+        cat_providers: dict[str, tuple[LLMProvider, LLMProvider | None]] = {}
+        for cat in config.categories:
+            cat_providers[cat.name] = await _resolve_category_providers(db, cat, config)
+
         # ── Stage 1: Generate initial topics (sequential) ─────────────────
         all_topics: dict[str, list[str]] = {}
         for cat, count in zip(config.categories, counts):
@@ -839,8 +923,9 @@ async def run_job(
             progress.current_category = cat.name
             await _update_progress(db, job_id, "running", progress)
 
+            gen_provider, _judge = cat_providers[cat.name]
             topics = await _generate_topics(
-                api_key, config, cat, min(TOPIC_BATCH_SIZE, count),
+                gen_provider, config, cat, min(TOPIC_BATCH_SIZE, count),
                 overhead=overhead, job_id=job_id,
             )
             all_topics[cat.name] = topics
@@ -851,16 +936,27 @@ async def run_job(
         progress.current_category = None  # all categories run simultaneously
         await _update_progress(db, job_id, "running", progress)
 
-        tasks = [
-            asyncio.create_task(
-                _run_category(cat, count, config, api_key, db, job_id, progress, all_topics, delay, overhead=overhead),
-                name=f"cat-{cat.name}",
+        tasks = []
+        for cat, count in zip(config.categories, counts):
+            gen_provider, judge_provider = cat_providers[cat.name]
+            tasks.append(
+                asyncio.create_task(
+                    _run_category(
+                        cat, count, config,
+                        gen_provider, judge_provider,
+                        db, job_id, progress, all_topics, delay,
+                        overhead=overhead,
+                    ),
+                    name=f"cat-{cat.name}",
+                )
             )
-            for cat, count in zip(config.categories, counts)
-        ]
         try:
             await asyncio.gather(*tasks)
-        except Exception:
+        except (Exception, asyncio.CancelledError):
+            # Catch CancelledError too: when cancel_job() cancels the outer
+            # run_job task, asyncio propagates the cancel into this gather,
+            # and we want to actively cancel each per-category subtask so
+            # their httpx requests close instead of leaking.
             for t in tasks:
                 if not t.done():
                     t.cancel()
@@ -874,7 +970,7 @@ async def run_job(
         )
         log_event(job_id, "job_completed", completed=progress.completed)
 
-        # Actual cost — per-model pricing from real OpenRouter usage
+        # Actual cost — per-model pricing from real usage
         cat_prices = {
             (c.model or config.model): (c.prompt_price, c.completion_price)
             for c in config.categories
@@ -953,21 +1049,36 @@ async def run_job(
         except Exception:
             logger.exception("Auto-export failed for job %s (non-fatal)", job_id)
 
-    except _CancelledError:
+    except (_CancelledError, asyncio.CancelledError):
+        # asyncio.CancelledError fires when cancel_job() called task.cancel()
+        # mid-LLM-call; _CancelledError fires from the cooperative checks
+        # between calls. Both end the same way: write the terminal state.
+        # Shield the DB write so a back-to-back second cancel can't tear it
+        # down half-committed.
         progress.current_stage = "cancelled"
-        await _update_progress(db, job_id, "cancelled", progress)
+        try:
+            await asyncio.shield(_update_progress(db, job_id, "cancelled", progress))
+        except Exception:
+            logger.exception("Failed to persist cancelled status for job %s", job_id)
+        # Do NOT re-raise asyncio.CancelledError — fire-and-forget background
+        # task: nobody awaits us, and propagating would mark the task FAILED
+        # in the asyncio bookkeeping for no benefit.
 
     except Exception:
         logger.exception("Job %s failed with unhandled exception", job_id)
         progress.current_stage = "failed"
-        await _update_progress(db, job_id, "failed", progress)
+        try:
+            await asyncio.shield(_update_progress(db, job_id, "failed", progress))
+        except Exception:
+            logger.exception("Failed to persist failed status for job %s", job_id)
 
     finally:
         clear_cancellation(job_id)
         _running_jobs.discard(job_id)
+        _job_tasks.pop(job_id, None)
 
 
-async def resume_job(job_id: str, api_key: str) -> None:
+async def resume_job(job_id: str) -> None:
     """
     Resume a previously interrupted or cancelled job.
 
@@ -1035,4 +1146,4 @@ async def resume_job(job_id: str, api_key: str) -> None:
     )
 
     log_event(job_id, "job_resumed", completed=total_completed, target=config.total_examples)
-    await run_job(job_id, config, api_key, resume_progress=resume_progress_obj)
+    await run_job(job_id, config, resume_progress=resume_progress_obj)

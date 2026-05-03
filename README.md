@@ -24,7 +24,7 @@ Dataset Generator is a desktop app that automates the full dataset generation pi
 
 Under the hood it runs a three-stage engine: instead of a single "generate 100 examples" prompt, the app first decomposes the job into unique topics and outlines, only then generating the actual examples. The result: diverse, coherent data without the repetitive patterns of naive generation.
 
-Everything stays local. API keys live in SQLite on your device, datasets land in `~/.datasetgenerator/`. All model traffic goes through OpenRouter (~300 models, one key).
+Everything stays local. API keys live in SQLite on your device, datasets land in `~/.datasetgenerator/`. Talk to OpenRouter for ~300 cloud models, or point the app at a local Ollama / LM Studio / llama.cpp server for fully offline generation — both modes share the same pipeline.
 
 > **Note on provider terms.** Users are responsible for complying with the terms of service of the LLM providers they use through OpenRouter. Some providers restrict using model outputs for training competitive models — check the ToS of your chosen model before generating datasets for fine-tuning.
 
@@ -85,7 +85,8 @@ https://github.com/user-attachments/assets/73f43f6c-a5b8-47c9-8de2-8e016e57cfef
 
 
 - **Plan-then-Execute pipeline** — three stages (topics → outlines → examples), each can use a different model
-- **Tests** - 270-test suite (unit + integration + E2E) — internal
+- **Tests** - 460-test suite (unit + integration + E2E) — internal
+- **Cloud + local providers** — OpenRouter for ~300 cloud models, plus Ollama / LM Studio / any OpenAI-compatible endpoint for fully offline generation. Mix and match per category (e.g. local generator + cloud judge).
 - **Per-category configuration** — any number of categories with custom proportions, descriptions, and dedicated models
 - **LLM Judge** — a second model scores every example 0–100 against editable criteria; rejected examples are regenerated
 - **Real-time SSE dashboard** — global and per-category progress, live example feed, running cost
@@ -106,6 +107,27 @@ https://github.com/user-attachments/assets/73f43f6c-a5b8-47c9-8de2-8e016e57cfef
 - **Instruction datasets at any scale** — SFT-ready JSONL for models from 7B edge deployments up to 70B+; merge multiple jobs to grow the corpus.
 - **Experimenting with fine-tuning** — quickly test how different category compositions affect model behavior without weeks of data curation.
 - **Multi-turn conversation datasets** — generate 3–5 turn dialogues for training agentic behaviors.
+
+---
+
+## Local models (Ollama / LM Studio / OpenAI-compatible)
+
+Beyond OpenRouter cloud models, the app talks to any **OpenAI-compatible** endpoint — Ollama, LM Studio, llama.cpp, vLLM, TGI, or your own server. Run the entire pipeline offline, or mix freely: e.g. local generator + cloud judge, or different models per category.
+
+**Setup:** start your local server (`ollama serve` on port 11434, LM Studio's server tab on 1234, etc.), then in the app open **Settings → Providers → Auto-detect local**. Endpoints are discovered automatically; any custom base URL of the form `http://host:port/v1` also works. For fully offline runs, pick a local embedding model (e.g. `nomic-embed-text`) in **Settings → Dedup**.
+
+### Model size matters
+
+Dataset generation is more demanding than general chat — the model has to produce strict JSON, follow multi-turn structure, and stay coherent across many examples. A model that's perfectly fine for chat may fail validation here.
+
+| Size | Recommendation | Notes |
+|---|---|---|
+| **<7B** (Llama 3.2:3B, etc.) | Not recommended | Frequent JSON validation failures, repetitive content, schema drift |
+| **7B–13B** (Mistral 7B, Llama 3.1:8B) | Casual use only | Works for experimentation, but expect noticeable skip rate and lower diversity |
+| **14B** (Qwen2.5-Coder:14B, Qwen3:14B) | Pragmatic minimum | Stable generation, clean output, low skip rate |
+| **32B+** (Qwen2.5-Coder-32B, DeepSeek-V3, GLM-4-32B) | Recommended target | Quality approaches cloud providers |
+
+If you don't have the GPU for 14B+, **OpenRouter is the better path** — same pipeline, no hardware constraint, open-source models cost cents per 1000 examples.
 
 ---
 
@@ -186,9 +208,6 @@ Backend on `http://localhost:8000`, frontend on `http://localhost:3000`. Open Se
 ---
 
 ## FAQ
-
-**Can I use local models (Ollama, LM Studio)?**
-Not currently — the pipeline talks to OpenRouter. Adding a local / OpenAI-compatible endpoint is on the roadmap; open an Issue if you need it sooner.
 
 **Is Linux fully supported?**
 Yes — the app ships AppImage and tar.gz builds and all features work cross-platform. That said, day-to-day development and manual testing happens on Windows; Linux builds are verified with automated smoke tests but don't get the same amount of hands-on time. If something feels off on Linux, please open an Issue — I'll take a look.

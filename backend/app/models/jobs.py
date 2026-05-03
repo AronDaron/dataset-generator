@@ -10,11 +10,13 @@ class CategoryConfig(BaseModel):
     description: str = Field(..., min_length=10, max_length=1000)
     proportion: float = Field(..., gt=0.0, le=1.0)
     model: str | None = None
-    provider: str | None = None
+    provider: str | None = None  # OpenRouter routing string ("DeepSeek" etc.)
+    provider_id: str | None = None  # FK → providers.id; None = use job-level default
     prompt_price: float = 0.0
     completion_price: float = 0.0
     judge_model: str | None = None
     judge_provider: str | None = None
+    judge_provider_id: str | None = None
     judge_prompt_price: float = 0.0
     judge_completion_price: float = 0.0
 
@@ -42,6 +44,8 @@ class JobConfig(BaseModel):
     judge_prompt_price: float = 0.0
     judge_completion_price: float = 0.0
     judge_provider: str | None = None
+    provider_id: str | None = None  # default LLM provider for this job
+    judge_provider_id: str | None = None  # default judge LLM provider for this job
 
     @model_validator(mode="after")
     def proportions_sum_to_one(self) -> "JobConfig":

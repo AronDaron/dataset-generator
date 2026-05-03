@@ -9,10 +9,16 @@ def now_iso() -> str:
 
 
 async def get_api_key(db: aiosqlite.Connection) -> str:
+    """Read the OpenRouter key out of the providers table.
+
+    Pre-v6 the key lived in `settings.openrouter_api_key`. The migration moves
+    it into a `providers` row keyed `openrouter-default`; this helper preserves
+    the legacy call shape so settings.py / openrouter.py shims still work.
+    """
     async with await db.execute(
-        "SELECT value FROM settings WHERE key = 'openrouter_api_key'"
+        "SELECT api_key FROM providers WHERE id = 'openrouter-default'"
     ) as cursor:
         row = await cursor.fetchone()
-    if not row:
+    if not row or not row["api_key"]:
         raise HTTPException(status_code=422, detail="OpenRouter API key not configured")
-    return row["value"]
+    return row["api_key"]

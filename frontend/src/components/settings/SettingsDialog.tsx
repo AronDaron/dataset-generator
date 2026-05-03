@@ -4,17 +4,17 @@ import { useEffect, useState } from 'react'
 import { Dialog } from '@base-ui/react/dialog'
 import { X, Key, Cpu, Scale, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ApiKeySection } from './ApiKeySection'
 import { HfTokenSection } from './HfTokenSection'
+import { ProvidersSection } from './ProvidersSection'
 import { ConfigSection } from './ConfigSection'
 import { SelectField, type SelectOption } from '@/components/ui/select'
 import { getApiKey, getHfToken, getConfig, putConfig, getEmbeddingModels } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-type SettingsTab = 'keys' | 'generation' | 'judge' | 'dedup'
+type SettingsTab = 'providers' | 'generation' | 'judge' | 'dedup'
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
-  { id: 'keys', label: 'API Keys', icon: <Key className="size-4" /> },
+  { id: 'providers', label: 'Providers', icon: <Key className="size-4" /> },
   { id: 'generation', label: 'Generation', icon: <Cpu className="size-4" /> },
   { id: 'judge', label: 'LLM Judge', icon: <Scale className="size-4" /> },
   { id: 'dedup', label: 'Dedup', icon: <Layers className="size-4" /> },
@@ -29,6 +29,7 @@ interface SettingsDialogProps {
   onJudgeProviderChange?: (provider: string) => void
   onModelPricingChange?: (pricing: { prompt: string; completion: string } | undefined) => void
   onJudgePricingChange?: (pricing: { prompt: string; completion: string } | undefined) => void
+  onProvidersChanged?: () => void
 }
 
 export function SettingsDialog({
@@ -40,8 +41,9 @@ export function SettingsDialog({
   onJudgeProviderChange,
   onModelPricingChange,
   onJudgePricingChange,
+  onProvidersChanged,
 }: SettingsDialogProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('keys')
+  const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
   const [hasKey, setHasKey] = useState(false)
   const [keyPreview, setKeyPreview] = useState<string | null>(null)
   const [hasHfToken, setHasHfToken] = useState(false)
@@ -184,16 +186,9 @@ export function SettingsDialog({
 
             {/* Content */}
             <div className="flex-1 min-w-0 overflow-y-auto px-6 py-5">
-              {activeTab === 'keys' && (
+              {activeTab === 'providers' && (
                 <div className="space-y-6">
-                  <ApiKeySection
-                    hasKey={hasKey}
-                    keyPreview={keyPreview}
-                    onKeyChange={(hk, preview) => {
-                      setHasKey(hk)
-                      setKeyPreview(preview)
-                    }}
-                  />
+                  <ProvidersSection onProvidersChanged={onProvidersChanged} />
                   <div className="border-t border-border" />
                   <HfTokenSection
                     hasToken={hasHfToken}

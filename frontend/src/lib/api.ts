@@ -29,6 +29,106 @@ export interface ModelOption {
   id: string
   name: string
   pricing?: { prompt: string; completion: string }
+  provider_id?: string
+  provider_kind?: 'openrouter' | 'openai_compat'
+  is_free?: boolean
+}
+
+// ---- Providers (multi-LLM-provider registry) ----
+
+export type ProviderKind = 'openrouter' | 'openai_compat'
+
+export interface Provider {
+  id: string
+  kind: ProviderKind
+  name: string
+  base_url: string
+  enabled: boolean
+  is_default: boolean
+  has_api_key: boolean
+  api_key_preview: string | null
+  created_at: string
+}
+
+export interface ProviderCreate {
+  kind: ProviderKind
+  name: string
+  base_url: string
+  api_key?: string | null
+  enabled?: boolean
+  set_default?: boolean
+}
+
+export interface ProviderUpdate {
+  name?: string
+  base_url?: string
+  api_key?: string | null
+  enabled?: boolean
+  set_default?: boolean
+}
+
+export interface TestProviderResult {
+  ok: boolean
+  models_count: number
+  error?: string | null
+}
+
+export interface AutoDetectCandidate {
+  label: string
+  base_url: string
+  models_count: number
+}
+
+export interface AutoDetectResponse {
+  candidates: AutoDetectCandidate[]
+}
+
+export async function getProviders(): Promise<Provider[]> {
+  return request<Provider[]>('/api/providers')
+}
+
+export async function createProvider(body: ProviderCreate): Promise<Provider> {
+  return request<Provider>('/api/providers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateProvider(id: string, body: ProviderUpdate): Promise<Provider> {
+  return request<Provider>(`/api/providers/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteProvider(id: string): Promise<void> {
+  await request(`/api/providers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function testProvider(id: string): Promise<TestProviderResult> {
+  return request<TestProviderResult>(`/api/providers/${encodeURIComponent(id)}/test`, {
+    method: 'POST',
+  })
+}
+
+export async function getProviderModels(id: string): Promise<ModelOption[]> {
+  const data = await request<{ models: ModelOption[] }>(
+    `/api/providers/${encodeURIComponent(id)}/models`,
+  )
+  return data.models
+}
+
+export async function autoDetectProviders(): Promise<AutoDetectResponse> {
+  return request<AutoDetectResponse>('/api/providers/auto-detect', { method: 'POST' })
+}
+
+export async function getProviderDefaultBaseUrl(kind: ProviderKind): Promise<string> {
+  const data = await request<{ base_url: string }>(
+    `/api/providers/defaults/${encodeURIComponent(kind)}`,
+  )
+  return data.base_url
 }
 
 export interface CategoryConfig {
@@ -37,10 +137,12 @@ export interface CategoryConfig {
   proportion: number
   model?: string
   provider?: string
+  provider_id?: string
   prompt_price?: number
   completion_price?: number
   judge_model?: string
   judge_provider?: string
+  judge_provider_id?: string
   judge_prompt_price?: number
   judge_completion_price?: number
 }
@@ -63,6 +165,8 @@ export interface JobConfig {
   judge_prompt_price?: number
   judge_completion_price?: number
   judge_provider?: string
+  provider_id?: string
+  judge_provider_id?: string
 }
 
 export interface JobCreatedResponse {
@@ -126,14 +230,21 @@ export async function putConfig(cfg: Partial<GlobalConfig>): Promise<void> {
 }
 
 export async function getModels(): Promise<ModelOption[]> {
-  const data = await request<{
-    models: Array<{ id: string; name: string; pricing?: { prompt: string; completion: string } }>
-  }>('/api/openrouter/models')
-  return data.models.map((m) => ({
-    id: m.id,
-    name: m.name || m.id,
-    pricing: m.pricing,
-  }))
+  // Aggregate models from every enabled provider so the picker can offer
+  // OpenRouter cloud models and local Ollama / LM Studio models in one list.
+  // A failing provider is skipped (it likely just lost its endpoint) — we
+  // surface what we can rather than failing the whole pick.
+  const providers = (await getProviders()).filter((p) => p.enabled)
+  const lists = await Promise.all(
+    providers.map(async (p) => {
+      try {
+        return await getProviderModels(p.id)
+      } catch {
+        return []
+      }
+    }),
+  )
+  return lists.flat()
 }
 
 export interface EmbeddingModelOption {

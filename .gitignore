@@ -70,6 +70,7 @@ AppDir/
 # Wewnętrzna instrukcja buildu Linux (nie commitujemy)
 kompilacja_linux.md
 verify_linux_build.sh
+post_dev_to.md
 
 # Python test/lint caches
 .coverage

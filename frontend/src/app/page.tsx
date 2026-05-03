@@ -200,6 +200,12 @@ export default function GeneratorPage() {
 
     try {
       const proportionFloats = toApiProportions(categories)
+      // Map a model id back to the provider it lives on. Without this, mixed
+      // mode (e.g. local Ollama gen + cloud OpenRouter judge) silently routes
+      // every call to the default provider and explodes on the first call to
+      // a model that isn't hosted there.
+      const findProviderId = (modelId: string | undefined): string | undefined =>
+        modelId ? modelList.find((m) => m.id === modelId)?.provider_id : undefined
       const result = await createJob({
         categories: categories.map((c, i) => {
           const effectiveModelId = c.model || model
@@ -208,16 +214,20 @@ export default function GeneratorPage() {
           const jPricing = effectiveJudgeModelId
             ? modelList.find((m) => m.id === effectiveJudgeModelId)?.pricing
             : null
+          const catProviderId = findProviderId(c.model)
+          const catJudgeProviderId = findProviderId(c.judgeModel)
           return {
             name: c.name.trim(),
             description: c.description.trim(),
             proportion: proportionFloats[i],
             ...(c.model ? { model: c.model } : {}),
             ...(c.provider ? { provider: c.provider } : {}),
+            ...(catProviderId ? { provider_id: catProviderId } : {}),
             prompt_price: pricing ? parseFloat(pricing.prompt) : 0,
             completion_price: pricing ? parseFloat(pricing.completion) : 0,
             ...(c.judgeModel ? { judge_model: c.judgeModel } : {}),
             ...(c.judgeProvider ? { judge_provider: c.judgeProvider } : {}),
+            ...(catJudgeProviderId ? { judge_provider_id: catJudgeProviderId } : {}),
             judge_prompt_price: jPricing ? parseFloat(jPricing.prompt) : (judgePricing ? parseFloat(judgePricing.prompt) : 0),
             judge_completion_price: jPricing ? parseFloat(jPricing.completion) : (judgePricing ? parseFloat(judgePricing.completion) : 0),
           }
@@ -233,6 +243,8 @@ export default function GeneratorPage() {
         conversation_turns: conversationTurns,
         judge_criteria: judgeCriteria,
         ...(judgeProvider ? { judge_provider: judgeProvider } : {}),
+        ...(findProviderId(model) ? { provider_id: findProviderId(model) } : {}),
+        ...(findProviderId(judgeModel) ? { judge_provider_id: findProviderId(judgeModel) } : {}),
         model_price_per_token: modelPricing
           ? (parseFloat(modelPricing.prompt) + parseFloat(modelPricing.completion)) / 2
           : 0,
@@ -303,7 +315,7 @@ export default function GeneratorPage() {
           {!model && (
             <div className="mb-4 flex items-center gap-2 rounded-lg border border-transparent bg-warn/10 px-4 py-3 text-sm text-warn">
               <AlertCircle className="size-4 shrink-0" />
-              Open <strong className="mx-1">Settings</strong> to enter your API key and select a model.
+              No provider configured. Open <strong className="mx-1">Settings → Providers</strong> to add OpenRouter or a local Ollama / LM Studio endpoint.
             </div>
           )}
           <CategoryList
@@ -380,6 +392,17 @@ export default function GeneratorPage() {
         onModelPricingChange={setModelPricing}
         onJudgePricingChange={setJudgePricing}
         onJudgeProviderChange={setJudgeProvider}
+        onProvidersChanged={() => {
+          // Provider added / removed / toggled / default changed → the
+          // aggregated model list must be refetched so the picker reflects
+          // the current set. Without this, in pywebview (no F5) the user
+          // would see a stale list after switching default Ollama→OpenRouter.
+          getModels().then((list) => {
+            setModelList(list)
+            setModelPricing(list.find((m) => m.id === model)?.pricing)
+            setJudgePricing(list.find((m) => m.id === judgeModel)?.pricing)
+          }).catch(() => { /* non-fatal */ })
+        }}
         onClose={() => {
           setSettingsOpen(false)
           // Re-sync config from backend after settings saved
