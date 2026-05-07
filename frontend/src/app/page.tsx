@@ -131,7 +131,9 @@ export default function GeneratorPage() {
     }
   }
 
-  const hasNewNotifications = resumable.interrupted_count > 0 && !notificationsSeen
+  // "Unexpected" = interrupted or failed (both are crashes, not user-cancelled).
+  const unexpectedCount = resumable.jobs.filter((j) => j.status === 'interrupted' || j.status === 'failed').length
+  const hasNewNotifications = unexpectedCount > 0 && !notificationsSeen
 
   useEffect(() => {
     Promise.all([getApiKey(), getConfig()])

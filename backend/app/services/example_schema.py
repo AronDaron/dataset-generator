@@ -20,6 +20,8 @@ from typing import Any, TypedDict
 
 SUPPORTED_FORMATS: frozenset[str] = frozenset({"alpaca", "sharegpt", "chatml"})
 
+MESSAGES_PER_TURN = 2  # human/gpt or user/assistant alternation
+
 _ALPACA_TOP_KEYS: frozenset[str] = frozenset({"instruction", "input", "output"})
 _ALPACA_REQUIRED_TOP_KEYS: frozenset[str] = frozenset({"instruction", "output"})
 
@@ -46,12 +48,18 @@ def _fail(reason: str, detail: str) -> ValidationResult:
     return {"ok": False, "reason": reason, "detail": detail}
 
 
-def validate_example(parsed: Any, fmt: str) -> ValidationResult:
+def validate_example(
+    parsed: Any, fmt: str, expected_turns: int | None = None
+) -> ValidationResult:
     """Strictly validate that ``parsed`` matches the schema for ``fmt``.
 
     On success the example is guaranteed to share top-level keys (and turn
     keys, where applicable) with every other passing example of the same
     format — safe to write to JSONL without breaking Arrow column unification.
+
+    When ``expected_turns`` is provided (sharegpt/chatml only), enforce that
+    ``len(turns) == expected_turns * MESSAGES_PER_TURN``. Alpaca ignores it
+    since it has no turn list.
     """
     if not isinstance(parsed, dict):
         return _fail("not_dict", f"parsed payload is {type(parsed).__name__}, expected dict")
@@ -70,6 +78,7 @@ def validate_example(parsed: Any, fmt: str) -> ValidationResult:
             roles=_SHAREGPT_ROLES,
             role_field="from",
             content_field="value",
+            expected_turns=expected_turns,
         )
     if fmt == "chatml":
         return _validate_conversation(
@@ -80,6 +89,7 @@ def validate_example(parsed: Any, fmt: str) -> ValidationResult:
             roles=_CHATML_ROLES,
             role_field="role",
             content_field="content",
+            expected_turns=expected_turns,
         )
 
     return _fail("unknown_format", f"format {fmt!r} is not supported")
@@ -121,6 +131,7 @@ def _validate_conversation(
     roles: tuple[str, str],
     role_field: str,
     content_field: str,
+    expected_turns: int | None = None,
 ) -> ValidationResult:
     keys = set(parsed.keys())
     extra = keys - top_keys
@@ -135,6 +146,15 @@ def _validate_conversation(
         return _fail("wrong_type", f"{list_key} is {type(turns).__name__}, expected list")
     if len(turns) < 2:
         return _fail("too_few_turns", f"{list_key} has {len(turns)} turn(s), need at least 2")
+
+    if expected_turns is not None:
+        expected_msgs = expected_turns * MESSAGES_PER_TURN
+        if len(turns) != expected_msgs:
+            return _fail(
+                "turn_count_mismatch",
+                f"{list_key} has {len(turns)} message(s), "
+                f"expected {expected_msgs} ({expected_turns} turn(s))",
+            )
 
     for i, turn in enumerate(turns):
         if not isinstance(turn, dict):
@@ -182,8 +202,8 @@ def _validate_conversation(
     return _ok()
 
 
-def is_valid_example(parsed: Any, fmt: str) -> bool:
-    return validate_example(parsed, fmt)["ok"]
+def is_valid_example(parsed: Any, fmt: str, expected_turns: int | None = None) -> bool:
+    return validate_example(parsed, fmt, expected_turns=expected_turns)["ok"]
 
 
 def strip_to_schema(parsed: dict, fmt: str) -> tuple[dict, list[str]]:

@@ -185,9 +185,11 @@ def _extract_usage(response: dict) -> dict:
     }
 
 
-def _validate_example_structure(parsed: Any, fmt: str) -> tuple[bool, str | None, str | None]:
+def _validate_example_structure(
+    parsed: Any, fmt: str, expected_turns: int | None = None
+) -> tuple[bool, str | None, str | None]:
     """Strict structural check delegating to example_schema.validate_example."""
-    result = validate_example(parsed, fmt)
+    result = validate_example(parsed, fmt, expected_turns=expected_turns)
     return result["ok"], result["reason"], result["detail"]
 
 
@@ -202,6 +204,7 @@ async def _generate_and_validate_example(
     output_format: str = "sharegpt",
     job_id: str | None = None,
     category: str | None = None,
+    expected_turns: int | None = None,
 ) -> tuple[dict, int, dict] | None:
     """
     Call the provider, parse JSON, validate structure and token count.
@@ -338,7 +341,7 @@ async def _generate_and_validate_example(
                 continue
             return None
 
-        ok, reason, detail = _validate_example_structure(parsed, output_format)
+        ok, reason, detail = _validate_example_structure(parsed, output_format, expected_turns=expected_turns)
         if not ok:
             logger.warning(
                 "[gen-fail] invalid structure: model=%s provider=%s attempt=%d "
@@ -602,6 +605,7 @@ async def _generate_example(
         output_format=config.format,
         job_id=job_id,
         category=cat.name,
+        expected_turns=config.conversation_turns,
     )
 
 
@@ -1080,7 +1084,7 @@ async def run_job(
 
 async def resume_job(job_id: str) -> None:
     """
-    Resume a previously interrupted or cancelled job.
+    Resume a previously interrupted, cancelled, or failed job.
 
     Reconstructs ProgressJson from DB state:
       - completed counts come from the `examples` table (actual rows)
@@ -1101,7 +1105,7 @@ async def resume_job(job_id: str) -> None:
     if not row:
         raise LookupError(f"Job {job_id} not found")
     # 'pending' is allowed — the resume endpoint sets it before spawning this task.
-    if row["status"] not in ("interrupted", "cancelled", "pending"):
+    if row["status"] not in ("interrupted", "cancelled", "pending", "failed"):
         raise ValueError(f"Job {job_id} has status {row['status']}, not resumable")
 
     config = JobConfig.model_validate_json(row["config_json"])

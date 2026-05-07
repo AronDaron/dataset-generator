@@ -149,7 +149,7 @@ function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, 
 
   const style = getStatusStyle(job.status)
   const isTerminal = ['completed', 'cancelled', 'failed', 'interrupted'].includes(job.status)
-  const isResumable = ['interrupted', 'cancelled'].includes(job.status) && job.completed > 0
+  const isResumable = ['interrupted', 'cancelled', 'failed'].includes(job.status) && job.completed > 0
   const isDismissible = job.status === 'interrupted'
   const totalCost = (job.actual_cost ?? 0) + (job.judge_cost ?? 0)
 

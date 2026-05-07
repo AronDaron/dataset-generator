@@ -191,8 +191,8 @@ python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
 ./venv/bin/uvicorn app.main:app --reload --port 8000
 
-# Frontend (new terminal)
-cd frontend
+# Frontend (new terminal — start from the cloned repo)
+cd dataset-generator/frontend
 npm install
 npm run dev
 ```
@@ -201,7 +201,7 @@ Backend on `http://localhost:8000`, frontend on `http://localhost:3000`. Open Se
 
 > **Windows:** replace `./venv/bin/pip` and `./venv/bin/uvicorn` with `venv\Scripts\pip.exe` and `venv\Scripts\uvicorn.exe`.
 
-**Requirements:** Python 3.10+, Node.js 20+, an [OpenRouter API key](https://openrouter.ai/keys).
+**Requirements:** Python 3.10+ (`python3-venv`, `python3-pip`), Node.js 20+ (includes `npm`), `git`, `curl`, and an [OpenRouter API key](https://openrouter.ai/keys) — optional if you only use local models (Ollama / LM Studio).
 
 **Stack:** Next.js 16 + React 19, FastAPI + Pydantic v2, SQLite (aiosqlite), SSE for progress, Pywebview + PyInstaller for packaging.
 

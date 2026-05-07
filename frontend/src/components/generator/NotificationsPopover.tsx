@@ -22,8 +22,8 @@ export function NotificationsPopover({ jobs, hasNew, onOpen, onResumed, onDismis
   const [dismissingId, setDismissingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Popover shows only unexpected interruptions. User-cancelled jobs live in /history.
-  const visibleJobs = jobs.filter((j) => j.status === 'interrupted')
+  // Popover shows only unexpected interruptions (interrupted, failed). User-cancelled jobs live in /history.
+  const visibleJobs = jobs.filter((j) => j.status === 'interrupted' || j.status === 'failed')
 
   async function handleResume(jobId: string) {
     setResumingId(jobId)
@@ -100,7 +100,7 @@ export function NotificationsPopover({ jobs, hasNew, onOpen, onResumed, onDismis
 
             {visibleJobs.length === 0 ? (
               <p className="py-6 text-center text-xs text-text-3">
-                No interrupted jobs.
+                No resumable jobs.
               </p>
             ) : (
               <ul className="space-y-2">

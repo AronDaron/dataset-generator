@@ -71,6 +71,9 @@ AppDir/
 kompilacja_linux.md
 verify_linux_build.sh
 post_dev_to.md
+post_reddit.md
+disti.md
+porownanie.md
 
 # Python test/lint caches
 .coverage

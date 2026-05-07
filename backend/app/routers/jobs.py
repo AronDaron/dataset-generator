@@ -382,12 +382,12 @@ async def list_jobs(
 async def list_resumable_jobs(
     db: aiosqlite.Connection = Depends(get_db),
 ) -> ResumableJobsResponse:
-    """List jobs that can be resumed (interrupted or cancelled, with at least 1 example)."""
+    """List jobs that can be resumed (interrupted, cancelled, or failed; with at least 1 example)."""
     async with await db.execute(
         "SELECT j.id, j.status, j.config_json, j.progress_json, j.created_at, j.updated_at, "
         "(SELECT COUNT(*) FROM examples WHERE examples.job_id = j.id) AS actual_count "
         "FROM jobs j "
-        "WHERE j.status IN ('interrupted', 'cancelled') "
+        "WHERE j.status IN ('interrupted', 'cancelled', 'failed') "
         "ORDER BY j.updated_at DESC"
     ) as cursor:
         rows = await cursor.fetchall()
@@ -404,7 +404,7 @@ async def resume_job_endpoint(
     job_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> JobResponse:
-    """Resume an interrupted or cancelled job. Validates model availability before spawning task."""
+    """Resume an interrupted, cancelled, or failed job. Validates model availability before spawning task."""
     if is_running(job_id):
         raise HTTPException(status_code=409, detail="Job is already running")
 
@@ -416,10 +416,10 @@ async def resume_job_endpoint(
         row = await cursor.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
-    if row["status"] not in ("interrupted", "cancelled"):
+    if row["status"] not in ("interrupted", "cancelled", "failed"):
         raise HTTPException(
             status_code=409,
-            detail=f"Job is {row['status']}, only interrupted or cancelled jobs can be resumed",
+            detail=f"Job is {row['status']}, only interrupted, cancelled, or failed jobs can be resumed",
         )
 
     config = JobConfig.model_validate_json(row["config_json"])
