@@ -298,3 +298,136 @@ def serialize_for_jsonl(content_json: str, fmt: str) -> tuple[str, list[str]]:
         cleaned, dropped = strip_to_schema(parsed, fmt)
         return json.dumps(cleaned, ensure_ascii=False), dropped
     return json.dumps(parsed, ensure_ascii=False), []
+
+
+# Assistant-side coordinates per format — used both for counting target turns
+# (reasoning service needs N rationales for N assistant turns) and for inline
+# `<think>` injection at export. DB `content_json` stays pristine in both cases;
+# inline injection wraps each assistant-side text only on the way out so re-runs
+# with a different reasoning format on the same source dataset stay clean.
+_ASSISTANT_TARGETS = {
+    "alpaca":   (None,            "output", None),       # flat top-level field
+    "sharegpt": ("conversations", "value",  ("from", "gpt")),
+    "chatml":   ("messages",      "content", ("role", "assistant")),
+}
+
+
+def count_assistant_turns(parsed: dict, fmt: str) -> int:
+    """Count assistant-side response slots in a cleaned example.
+
+    Reasoning service uses this to size the JSON array of rationales it asks
+    the LLM for. Alpaca always has exactly one assistant slot (the ``output``
+    field); sharegpt/chatml count turns whose role matches the assistant role
+    for that format.
+    """
+    if fmt not in SUPPORTED_FORMATS or not isinstance(parsed, dict):
+        return 0
+    list_key, _content_key, role_match = _ASSISTANT_TARGETS[fmt]
+    if list_key is None:
+        # alpaca — single slot whenever `output` is present and a string.
+        return 1 if isinstance(parsed.get("output"), str) else 0
+    turns = parsed.get(list_key)
+    if not isinstance(turns, list) or role_match is None:
+        return 0
+    role_field, role_value = role_match
+    return sum(
+        1 for t in turns
+        if isinstance(t, dict) and t.get(role_field) == role_value
+    )
+
+
+def _parse_reasoning(reasoning: str | None) -> list[str]:
+    """Parse the DB ``examples.reasoning`` column into a per-turn list.
+
+    Storage convention: ``examples.reasoning`` holds a JSON array of strings,
+    one rationale per assistant turn (single-turn formats have an array of
+    length 1). NULL / empty / malformed → empty list (treated as "no
+    reasoning" by callers, so the row exports without a `<think>` prefix and
+    without a top-level `reasoning` field). A legacy string value (not JSON
+    array) is treated as a single-element list to keep older rows readable.
+    """
+    if not reasoning:
+        return []
+    try:
+        parsed = json.loads(reasoning)
+    except (json.JSONDecodeError, TypeError):
+        return [reasoning]  # legacy single-string row
+    if isinstance(parsed, list):
+        return [str(p) for p in parsed if isinstance(p, str) and p.strip()]
+    if isinstance(parsed, str):
+        return [parsed] if parsed.strip() else []
+    return []
+
+
+def serialize_with_reasoning(
+    content_json: str,
+    fmt: str,
+    reasoning: str | None,
+    reasoning_format: str | None,
+) -> tuple[str, list[str]]:
+    """Like ``serialize_for_jsonl`` but composes the per-turn reasoning on export.
+
+    The DB column ``examples.reasoning`` holds a JSON array of prose strings,
+    one per assistant turn. ``jobs.reasoning_format`` controls how they land
+    in the JSONL:
+
+    - ``inline``: each ``<think>{prose[i]}</think>`` is prepended to its
+      matching assistant-side text (alpaca ``output`` always [0]; sharegpt
+      i-th ``gpt`` turn's ``value``; chatml i-th ``assistant`` turn's
+      ``content``). Standard DeepSeek-R1 / Qwen3-thinking convention —
+      trainers strip on read. If the array is shorter than the assistant
+      turn count, extra turns export without a think prefix; if longer, the
+      trailing entries are dropped.
+    - ``separate``: a top-level ``reasoning`` key (list of strings) is added
+      next to the existing format keys. Cleaner structurally; needs a
+      matching trainer template.
+
+    NULL/empty reasoning or NULL ``reasoning_format`` falls back to
+    ``serialize_for_jsonl`` so skipped examples and non-reasoning jobs share
+    one code path.
+    """
+    proses = _parse_reasoning(reasoning)
+    if not proses or not reasoning_format:
+        return serialize_for_jsonl(content_json, fmt)
+
+    parsed = json.loads(content_json)
+    if not isinstance(parsed, dict) or fmt not in SUPPORTED_FORMATS:
+        if reasoning_format == "separate" and isinstance(parsed, dict):
+            parsed["reasoning"] = proses
+        return json.dumps(parsed, ensure_ascii=False), []
+
+    cleaned, dropped = strip_to_schema(parsed, fmt)
+
+    if reasoning_format == "separate":
+        cleaned["reasoning"] = proses
+        return json.dumps(cleaned, ensure_ascii=False), dropped
+
+    # inline path — inject `<think>...</think>` at the start of every assistant
+    # turn, pulling the matching prose from `proses[i]`.
+    list_key, content_key, role_match = _ASSISTANT_TARGETS[fmt]
+
+    if list_key is None:
+        # alpaca — flat `output` is the only assistant slot.
+        existing = cleaned.get(content_key, "")
+        if isinstance(existing, str) and proses:
+            cleaned[content_key] = f"<think>\n{proses[0]}\n</think>\n\n{existing}"
+    else:
+        turns = cleaned.get(list_key)
+        if isinstance(turns, list) and role_match is not None:
+            role_field, role_value = role_match
+            assistant_idx = 0
+            for turn in turns:
+                if not isinstance(turn, dict):
+                    continue
+                if turn.get(role_field) != role_value:
+                    continue
+                if assistant_idx >= len(proses):
+                    break
+                existing = turn.get(content_key, "")
+                if isinstance(existing, str):
+                    turn[content_key] = (
+                        f"<think>\n{proses[assistant_idx]}\n</think>\n\n{existing}"
+                    )
+                assistant_idx += 1
+
+    return json.dumps(cleaned, ensure_ascii=False), dropped

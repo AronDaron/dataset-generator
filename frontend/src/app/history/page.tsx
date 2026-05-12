@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, AlertCircle, CheckCircle2, XCircle, Upload, Merge, RotateCcw, X } from 'lucide-react'
+import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, AlertCircle, CheckCircle2, XCircle, Upload, Merge, RotateCcw, X, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getJobs, getHfToken, deleteJobWithProgress, openDatasetsFolder, findDuplicates, mergeDatasets, resumeJob, dismissJob, type JobListItem, type DeleteProgress } from '@/lib/api'
+import { addReasoning, getJob, getJobs, getHfToken, deleteJobWithProgress, openDatasetsFolder, findDuplicates, mergeDatasets, resumeJob, dismissJob, type JobListItem, type DeleteProgress, type ReasoningRequest } from '@/lib/api'
 import { UploadHfModal } from '@/components/history/UploadHfModal'
+import { AddReasoningDialog } from '@/components/history/AddReasoningDialog'
 import { StatusLegendPopover } from '@/components/jobs/StatusLegendPopover'
 import { STAGE_LABELS } from '@/lib/status-tone'
 
@@ -141,9 +142,11 @@ interface JobRowProps {
   resumingId: string | null
   onDismiss: (id: string) => void
   dismissingId: string | null
+  onAddReasoning: (job: JobListItem) => void
+  reasoningStartingId: string | null
 }
 
-function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, onOpenFolder, onUpload, selected, onToggle, onResume, resumingId, onDismiss, dismissingId }: JobRowProps) {
+function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, onOpenFolder, onUpload, selected, onToggle, onResume, resumingId, onDismiss, dismissingId, onAddReasoning, reasoningStartingId }: JobRowProps) {
   const [dedupState, setDedupState] = useState<'idle' | 'scanning' | 'done'>('idle')
   const [dedupCount, setDedupCount] = useState(0)
 
@@ -193,6 +196,19 @@ function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, 
             <span className="inline-flex items-center gap-1 rounded-full border border-transparent bg-accent-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
               <Merge className="size-3" />
               Merged
+            </span>
+          )}
+          {job.reasoning_format && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-transparent bg-accent-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary"
+              title={
+                job.reasoning_format === 'inline'
+                  ? 'Reasoning prose injected into <think> blocks at export'
+                  : 'Reasoning prose exported as a top-level field'
+              }
+            >
+              <Sparkles className="size-3" />
+              Reasoning ({job.reasoning_format})
             </span>
           )}
         </div>
@@ -263,6 +279,21 @@ function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, 
               View
             </Button>
           </Link>
+        )}
+        {job.status === 'completed' && job.completed > 0 && !job.reasoning_format && !job.parent_job_id && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onAddReasoning(job)}
+            disabled={reasoningStartingId === job.id}
+            title="Generate reasoning prose for every example"
+          >
+            {reasoningStartingId === job.id ? (
+              <><Loader2 className="size-3.5 animate-spin" /> Starting…</>
+            ) : (
+              <><Sparkles className="size-3.5" /> Add Reasoning</>
+            )}
+          </Button>
         )}
         {job.status === 'completed' && job.completed > 0 && (
           <Button
@@ -354,6 +385,9 @@ export default function HistoryPage() {
   const [mergeError, setMergeError] = useState<string | null>(null)
   const [mergeProgress, setMergeProgress] = useState<MergeProgress | null>(null)
   const [shuffleOnMerge, setShuffleOnMerge] = useState(true)
+  const [reasoningSourceJob, setReasoningSourceJob] = useState<JobListItem | null>(null)
+  const [reasoningSourceCategories, setReasoningSourceCategories] = useState<string[]>([])
+  const [reasoningStartingId, setReasoningStartingId] = useState<string | null>(null)
 
   useEffect(() => {
     Promise.all([getJobs(), getHfToken()])
@@ -396,13 +430,21 @@ export default function HistoryPage() {
   )
 
   const mergeInfo = useMemo(() => {
-    if (selectedJobs.length < 2) return { canMerge: false, formatMismatch: false }
+    if (selectedJobs.length < 2) {
+      return { canMerge: false, formatMismatch: false, reasoningMismatch: false }
+    }
     const allCompleted = selectedJobs.every((j) => j.status === 'completed')
     const formats = new Set(selectedJobs.map((j) => j.format))
     const sameFormat = formats.size === 1
+    // Reasoning format compatibility — null/undefined both mean "no reasoning"
+    // and must match each other; inline/separate also each form their own
+    // class. Backend rejects mismatches with 422.
+    const reasoningFormats = new Set(selectedJobs.map((j) => j.reasoning_format ?? null))
+    const sameReasoning = reasoningFormats.size === 1
     return {
-      canMerge: allCompleted && sameFormat,
+      canMerge: allCompleted && sameFormat && sameReasoning,
       formatMismatch: !sameFormat,
+      reasoningMismatch: !sameReasoning,
     }
   }, [selectedJobs])
 
@@ -542,6 +584,33 @@ export default function HistoryPage() {
     }
   }
 
+  async function handleAddReasoningClick(job: JobListItem) {
+    // Source category names live in job config — fetch the full detail rather
+    // than smuggling them onto JobListItem (it stays a list-only shape).
+    setReasoningStartingId(job.id)
+    try {
+      const detail = await getJob(job.id)
+      const names = detail.config.categories.map((c) => c.name)
+      setReasoningSourceCategories(names)
+      setReasoningSourceJob(job)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to load source job')
+    } finally {
+      setReasoningStartingId(null)
+    }
+  }
+
+  async function handleReasoningSubmit(req: ReasoningRequest) {
+    if (!reasoningSourceJob) return
+    const result = await addReasoning(reasoningSourceJob.id, req)
+    // Surface the new reasoning job on the gen dashboard — mirror the resume
+    // flow. /jobs/?id= is the static read-only history view; we want the live
+    // SSE dashboard on `/` so examples grow from 0 as reasoning lands per row.
+    sessionStorage.setItem('activeJobId', result.job_id)
+    setReasoningSourceJob(null)
+    router.push('/')
+  }
+
   return (
     <main className="min-h-screen bg-background">
       {/* Header */}
@@ -668,6 +737,9 @@ export default function HistoryPage() {
             {mergeInfo.formatMismatch && selectedIds.size >= 2 && (
               <span className="text-xs text-warn">Selected jobs have different formats</span>
             )}
+            {!mergeInfo.formatMismatch && mergeInfo.reasoningMismatch && selectedIds.size >= 2 && (
+              <span className="text-xs text-warn">Selected jobs have different reasoning formats</span>
+            )}
           </div>
         )}
 
@@ -764,6 +836,8 @@ export default function HistoryPage() {
                 openingFolderId={openingFolderId}
                 selected={selectedIds.has(job.id)}
                 onToggle={handleToggle}
+                onAddReasoning={handleAddReasoningClick}
+                reasoningStartingId={reasoningStartingId}
               />
             ))}
           </div>
@@ -778,6 +852,17 @@ export default function HistoryPage() {
           onClose={() => setUploadJobId(null)}
           jobId={uploadJobId}
           hasHfToken={hasHfToken}
+        />
+      )}
+
+      {/* Add Reasoning dialog */}
+      {reasoningSourceJob && (
+        <AddReasoningDialog
+          open
+          sourceJob={reasoningSourceJob}
+          sourceCategories={reasoningSourceCategories}
+          onClose={() => setReasoningSourceJob(null)}
+          onSubmit={handleReasoningSubmit}
         />
       )}
     </main>

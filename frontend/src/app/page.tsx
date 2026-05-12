@@ -275,11 +275,6 @@ export default function GeneratorPage() {
             <span className="font-serif italic text-3xl text-text-0 tracking-[-0.01em]">Dataset Generator</span>
           </div>
           <div className="flex items-center gap-3">
-            {model && (
-              <span className="hidden text-xs text-text-3 sm:block font-mono">
-                {model}
-              </span>
-            )}
             <Link href="/history">
               <Button variant="outline" size="sm">
                 <History className="size-4" />

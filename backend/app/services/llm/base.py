@@ -56,6 +56,11 @@ class ProviderCapabilities:
     requires_api_key: bool
     has_pricing: bool                 # cost tracking applicable
     supports_embeddings: bool
+    # False for self-hosted backends (Ollama, LM Studio) where parallel calls
+    # to the same endpoint contend on a single GPU and risk OOM. Reasoning
+    # service uses this to fan out cloud providers via asyncio.gather and
+    # serialize local providers behind a per-provider asyncio.Lock.
+    supports_parallel: bool = True
 
 
 class LLMError(Exception):

@@ -52,6 +52,9 @@ OPENAI_COMPAT_CAPABILITIES: Final = ProviderCapabilities(
     requires_api_key=False,
     has_pricing=False,
     supports_embeddings=True,
+    # Local single-GPU backends — parallel calls fight for the same VRAM and
+    # routinely OOM 14B+ models. Reasoning fan-out serializes calls here.
+    supports_parallel=False,
 )
 
 

@@ -297,11 +297,16 @@ export interface ProgressJson {
     | 'merging_copying'
     | 'merging_exporting'
     | 'merging_computing_stats'
+    | 'reasoning_copying'
+    | 'reasoning_generating'
+    | 'reasoning_exporting'
+    | 'reasoning_computing_stats'
   current_category: string | null
   categories: Record<string, CategoryProgress>
   judge_stats: JudgeStats | null
   actual_cost?: number | null
   judge_cost?: number | null
+  reasoning_cost?: number | null
 }
 
 export interface SSEExample {
@@ -314,6 +319,10 @@ export interface SSEExample {
   judge_score: number | null
   category: string
   model: string
+  // Per-turn rationales — one entry per assistant turn in `content`. Null
+  // for non-reasoning jobs and for examples skipped during a reasoning pass.
+  reasoning?: string[] | null
+  reasoning_model_used?: string | null
 }
 
 export type ActivityLevel = 'info' | 'warn' | 'error'
@@ -410,6 +419,9 @@ export interface JobListItem {
   actual_cost?: number | null
   judge_cost?: number | null
   is_merged?: boolean
+  parent_job_id?: string | null
+  reasoning_format?: 'inline' | 'separate' | null
+  reasoning_models?: string[]
 }
 
 export async function getJobs(): Promise<JobListItem[]> {
@@ -498,6 +510,8 @@ export interface JobDetail {
   progress: ProgressJson | null
   created_at: string
   updated_at: string
+  parent_job_id?: string | null
+  reasoning_format?: 'inline' | 'separate' | null
 }
 
 export async function getJob(jobId: string): Promise<JobDetail> {
@@ -595,6 +609,10 @@ export interface CategoryRunInfo {
   judge_model_is_default: boolean
   target: number
   completed: number
+  // Set only on reasoning jobs. `reasoning_provider` is a display string —
+  // "<Provider Name>" or "<Provider Name> / <route>" when a route was pinned.
+  reasoning_model?: string | null
+  reasoning_provider?: string | null
 }
 
 export interface RunSummary {
@@ -705,4 +723,39 @@ export async function resumeJob(jobId: string): Promise<JobDetail> {
 
 export async function dismissJob(jobId: string): Promise<JobDetail> {
   return request<JobDetail>(`/api/jobs/${jobId}/dismiss`, { method: 'POST' })
+}
+
+// ---- Reasoning post-process ----
+
+export interface ReasoningCategoryConfig {
+  name: string
+  model: string
+  provider_id: string
+}
+
+export interface ReasoningRequest {
+  format: 'inline' | 'separate'
+  categories: ReasoningCategoryConfig[]
+  temperature?: number
+  max_tokens?: number
+}
+
+export interface ReasoningResponse {
+  job_id: string
+  parent_job_id: string
+  total_examples: number
+}
+
+export async function addReasoning(
+  sourceJobId: string,
+  req: ReasoningRequest,
+): Promise<ReasoningResponse> {
+  return request<ReasoningResponse>(
+    `/api/jobs/${sourceJobId}/add-reasoning`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    },
+  )
 }

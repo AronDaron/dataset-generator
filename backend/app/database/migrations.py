@@ -136,6 +136,27 @@ async def _migration_v7(db: aiosqlite.Connection) -> None:
     await db.execute("UPDATE jobs SET stats_json = NULL WHERE stats_json IS NOT NULL")
 
 
+async def _migration_v8(db: aiosqlite.Connection) -> None:
+    """Reasoning post-process pass (P2-4).
+
+    Adds columns to support a new "reasoning job" — a separate row in `jobs`
+    with `parent_job_id` pointing at the source dataset. The reasoning prose
+    lives in `examples.reasoning` (never in `content_json`), so gen-time
+    schema validation stays untouched. Export composes the final JSONL on
+    the fly using `jobs.reasoning_format` (inline / separate).
+
+    parent_job_id is TEXT (not INTEGER) because jobs.id is UUID/TEXT.
+    """
+    await db.execute("ALTER TABLE examples ADD COLUMN reasoning TEXT")
+    await db.execute("ALTER TABLE examples ADD COLUMN reasoning_model_used TEXT")
+    await db.execute("ALTER TABLE jobs ADD COLUMN reasoning_format TEXT")
+    await db.execute("ALTER TABLE jobs ADD COLUMN reasoning_category_models TEXT")
+    await db.execute("ALTER TABLE jobs ADD COLUMN parent_job_id TEXT")
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_parent ON jobs(parent_job_id)"
+    )
+
+
 VERSIONED_MIGRATIONS = [
     _migration_v1,
     _migration_v2,
@@ -144,6 +165,7 @@ VERSIONED_MIGRATIONS = [
     _migration_v5,
     _migration_v6,
     _migration_v7,
+    _migration_v8,
 ]
 
 

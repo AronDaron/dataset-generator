@@ -234,42 +234,63 @@ function RunSummarySection({ summary, judgeEnabled }: { summary: RunSummary; jud
         </MetricCell>
       </div>
 
-      {summary.categories.length > 0 && (
-        <div className="mt-5 border-t border-border pt-4">
-          <h4 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-text-3">
-            Models per Category
-          </h4>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border text-[10.5px] uppercase tracking-widest text-text-3">
-                  <th className="pb-2 px-3 text-center font-medium">Category</th>
-                  <th className="pb-2 px-3 text-center font-medium">Gen Model</th>
-                  {judgeEnabled && <th className="pb-2 px-3 text-center font-medium">Judge Model</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {summary.categories.map((c) => (
-                  <tr key={c.name} className="border-b border-border last:border-0">
-                    <td className="py-2 px-3 text-center text-xs font-medium text-text-0">{c.name}</td>
-                    <td className="py-2 px-3 text-center">
-                      <ModelCell name={c.gen_model} isDefault={c.gen_model_is_default} />
-                    </td>
-                    {judgeEnabled && (
-                      <td className="py-2 px-3 text-center">
-                        <ModelCell name={c.judge_model} isDefault={c.judge_model_is_default} />
-                      </td>
-                    )}
+      {summary.categories.length > 0 && (() => {
+        // Reasoning column is only meaningful when at least one category has
+        // a model recorded (reasoning jobs only — gen / merge jobs leave it
+        // null and the column stays hidden).
+        const hasReasoning = summary.categories.some((c) => c.reasoning_model)
+        return (
+          <div className="mt-5 border-t border-border pt-4">
+            <h4 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-text-3">
+              Models per Category
+            </h4>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border text-[10.5px] uppercase tracking-widest text-text-3">
+                    <th className="pb-2 px-3 text-center font-medium">Category</th>
+                    <th className="pb-2 px-3 text-center font-medium">Gen Model</th>
+                    {judgeEnabled && <th className="pb-2 px-3 text-center font-medium">Judge Model</th>}
+                    {hasReasoning && <th className="pb-2 px-3 text-center font-medium">Reasoning Model</th>}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {summary.categories.map((c) => (
+                    <tr key={c.name} className="border-b border-border last:border-0">
+                      <td className="py-2 px-3 text-center text-xs font-medium text-text-0">{c.name}</td>
+                      <td className="py-2 px-3 text-center">
+                        <ModelCell name={c.gen_model} isDefault={c.gen_model_is_default} />
+                      </td>
+                      {judgeEnabled && (
+                        <td className="py-2 px-3 text-center">
+                          <ModelCell name={c.judge_model} isDefault={c.judge_model_is_default} />
+                        </td>
+                      )}
+                      {hasReasoning && (
+                        <td className="py-2 px-3 text-center">
+                          {c.reasoning_model ? (
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className="font-mono text-xs text-text-1">{c.reasoning_model}</span>
+                              {c.reasoning_provider && (
+                                <span className="text-[10.5px] text-text-3">{c.reasoning_provider}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[10.5px] italic text-text-4">—</span>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!judgeEnabled && !hasReasoning && (
+              <p className="mt-3 text-[11px] italic text-text-3">Judge disabled for this job.</p>
+            )}
           </div>
-          {!judgeEnabled && (
-            <p className="mt-3 text-[11px] italic text-text-3">Judge disabled for this job.</p>
-          )}
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

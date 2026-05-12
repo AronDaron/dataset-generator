@@ -19,7 +19,7 @@ from app.config import settings
 from app.models.jobs import CategoryProgress, MergeRequest, ProgressJson
 from app.routers.jobs import _fetch_source_configs, _is_merged, _resolve_leaf_sources
 from app.services.event_log import log_event
-from app.services.example_schema import serialize_for_jsonl
+from app.services.example_schema import serialize_for_jsonl, serialize_with_reasoning
 from app.services.job_runner import (
     _CancelledError,
     _running_jobs,
@@ -47,20 +47,28 @@ _MERGE_INSERT_BATCH = 1000
 _MERGE_EXAMPLE_INSERT_SQL = (
     "INSERT INTO examples "
     "(id, job_id, content_json, format, tokens, judge_score, category, model, "
-    "prompt_tokens, completion_tokens, judge_prompt_tokens, judge_completion_tokens) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "prompt_tokens, completion_tokens, judge_prompt_tokens, judge_completion_tokens, "
+    "reasoning, reasoning_model_used) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 
 
-def _jsonl_line(content_json: str, fmt: str) -> tuple[str, list[str]]:
+def _jsonl_line(
+    content_json: str,
+    fmt: str,
+    reasoning: str | None = None,
+    reasoning_format: str | None = None,
+) -> tuple[str, list[str]]:
     """JSONL line with defensive schema strip.
 
-    Returns ``(line_without_newline, dropped_paths)``. Goes through
-    ``serialize_for_jsonl`` so it shares behavior with ``export_service``:
-    extra top-level and per-turn keys outside the format whitelist are
-    pruned. For rows produced by the strict validator the strip is a no-op,
-    so the cost is just the json round-trip already needed for legacy rows
-    with embedded newlines."""
+    Returns ``(line_without_newline, dropped_paths)``. For merged-from-gen jobs
+    the reasoning args are None and this is identical to ``serialize_for_jsonl``.
+    For merges between reasoning datasets (same reasoning_format across all
+    sources — enforced upstream) the per-row reasoning is composed into the
+    JSONL line on the fly, same as ``export_service`` does for primary export.
+    """
+    if reasoning_format:
+        return serialize_with_reasoning(content_json, fmt, reasoning, reasoning_format)
     return serialize_for_jsonl(content_json, fmt)
 
 
@@ -88,7 +96,8 @@ async def spawn_merge_job(
 
     # 1. Source jobs must all exist
     async with await db.execute(
-        f"SELECT id, status, config_json FROM jobs WHERE id IN ({placeholders})",
+        f"SELECT id, status, config_json, reasoning_format "
+        f"FROM jobs WHERE id IN ({placeholders})",
         body.job_ids,
     ) as cursor:
         rows = await cursor.fetchall()
@@ -122,6 +131,25 @@ async def spawn_merge_job(
         )
     dataset_format = formats.pop()
 
+    # 3b. All source jobs must share the same reasoning_format (NULL is its own
+    # value — can't mix reasoning + non-reasoning, or inline + separate. Mixed
+    # formats would either lose the per-row reasoning silently or end up with
+    # half the rows wrapped in `<think>` and half not.)
+    reasoning_formats: set[str | None] = {row["reasoning_format"] for row in rows}
+    if len(reasoning_formats) > 1:
+        # Render NULLs as 'none' so the error message is readable.
+        rendered = sorted("none" if v is None else v for v in reasoning_formats)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Cannot merge jobs with mixed reasoning formats "
+                f"({', '.join(rendered)}). Merge reasoning datasets only with "
+                "compatible siblings (same format), or merge non-reasoning "
+                "datasets only with other non-reasoning datasets."
+            ),
+        )
+    merged_reasoning_format = reasoning_formats.pop()
+
     # 4. Count total examples + hard cap
     async with await db.execute(
         f"SELECT COUNT(*) AS n FROM examples WHERE job_id IN ({placeholders})",
@@ -148,10 +176,23 @@ async def spawn_merge_job(
     now = _now_iso()
     pending_progress = _make_merged_progress(total_count, "pending")
 
+    # When merging reasoning datasets, propagate the shared reasoning_format
+    # onto the merged job so list/view/export all behave as a reasoning job.
+    # `reasoning_category_models` is left NULL — it's only meaningful for the
+    # original reasoning pass that produced the prose, not for downstream
+    # merges that just shuffle existing rows.
     await db.execute(
-        "INSERT INTO jobs (id, status, config_json, progress_json, created_at, updated_at) "
-        "VALUES (?, 'pending', ?, ?, ?, ?)",
-        (merged_job_id, json.dumps(merged_config), pending_progress.model_dump_json(), now, now),
+        "INSERT INTO jobs (id, status, config_json, progress_json, "
+        " reasoning_format, created_at, updated_at) "
+        "VALUES (?, 'pending', ?, ?, ?, ?, ?)",
+        (
+            merged_job_id,
+            json.dumps(merged_config),
+            pending_progress.model_dump_json(),
+            merged_reasoning_format,
+            now,
+            now,
+        ),
     )
     await db.commit()
 
@@ -239,6 +280,7 @@ def _row_to_params(r: dict, merged_job_id: str) -> tuple:
         r["tokens"], r["judge_score"], r["category"] or "",
         r["model"] or "", r["prompt_tokens"], r["completion_tokens"],
         r["judge_prompt_tokens"], r["judge_completion_tokens"],
+        r.get("reasoning"), r.get("reasoning_model_used"),
     )
 
 
@@ -259,13 +301,16 @@ async def _merge_job_task(
     from app.database import get_db
     db = await get_db()
 
-    # Load merged_config (we need categories + format in the task, and the
-    # caller already serialized it into jobs.config_json).
+    # Load merged_config + reasoning_format so the JSONL export composes inline
+    # or separate variants on the fly. After spawn_merge_job's consistency
+    # check all sources share one reasoning_format, so the merged job's column
+    # is the authoritative value here.
     async with await db.execute(
-        "SELECT config_json FROM jobs WHERE id = ?", (merged_job_id,)
+        "SELECT config_json, reasoning_format FROM jobs WHERE id = ?", (merged_job_id,)
     ) as cursor:
         row = await cursor.fetchone()
     merged_config = json.loads(row["config_json"]) if row else {}
+    merged_reasoning_format = row["reasoning_format"] if row else None
 
     progress = _make_merged_progress(total_count, "merging_copying")
 
@@ -281,7 +326,7 @@ async def _merge_job_task(
         select_sql = (
             f"SELECT content_json, format, tokens, judge_score, category, model, "
             f"prompt_tokens, completion_tokens, judge_prompt_tokens, "
-            f"judge_completion_tokens "
+            f"judge_completion_tokens, reasoning, reasoning_model_used "
             f"FROM examples WHERE job_id IN ({placeholders}) ORDER BY created_at ASC"
         )
 
@@ -347,7 +392,10 @@ async def _merge_job_task(
                     if is_cancelled(merged_job_id):
                         raise _CancelledError()
                     insert_buffer.append(_row_to_params(ex, merged_job_id))
-                    line, dropped = _jsonl_line(ex["content_json"], ex["format"])
+                    line, dropped = _jsonl_line(
+                        ex["content_json"], ex["format"],
+                        ex.get("reasoning"), merged_reasoning_format,
+                    )
                     fh.write(line + "\n")
                     if dropped:
                         merge_strip_count += 1
@@ -371,7 +419,10 @@ async def _merge_job_task(
                         # we've seen so far so the UI shows a sane fraction.
                         progress.categories[cat_name].target = cat_counts[cat_name]
                         insert_buffer.append(_row_to_params(ex, merged_job_id))
-                        line, dropped = _jsonl_line(ex["content_json"], ex["format"])
+                        line, dropped = _jsonl_line(
+                            ex["content_json"], ex["format"],
+                            ex.get("reasoning"), merged_reasoning_format,
+                        )
                         fh.write(line + "\n")
                         if dropped:
                             merge_strip_count += 1

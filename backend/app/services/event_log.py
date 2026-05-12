@@ -64,6 +64,17 @@ _TEMPLATES: dict[str, tuple[Level, str]] = {
     "merge_strip_extra_keys":        ("warn",  "Stripped extra keys from {rows_affected} rows during merge"),
     "provider_unreachable":          ("warn",  "Provider {provider} unreachable ({status_code})"),
     "provider_response_invalid":     ("warn",  "Provider {provider} returned invalid response shape"),
+    "reasoning_started":             ("info",  "Reasoning pass started — {total} examples, format={format}"),
+    "reasoning_copy_batch":          ("info",  "Copied {done}/{total} examples"),
+    "reasoning_category_start":      ("info",  "{category} — generating reasoning for {count} examples"),
+    "reasoning_api_error":           ("warn",  "{category} — reasoning API error (attempt {attempt})"),
+    "reasoning_invalid_prose":       ("warn",  "{category} — reasoning rejected ({reason}, attempt {attempt})"),
+    "reasoning_skipped":             ("warn",  "{category} — reasoning skipped for one example after retries"),
+    "reasoning_export_start":        ("info",  "Writing reasoning JSONL"),
+    "reasoning_stats_start":         ("info",  "Computing statistics"),
+    "reasoning_completed":           ("info",  "Reasoning complete — {total} examples ({skipped} skipped)"),
+    "reasoning_failed":              ("error", "Reasoning failed: {error}"),
+    "reasoning_resumed":             ("info",  "Resumed reasoning — {copied}/{target} copied"),
 }
 
 

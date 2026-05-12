@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { AlertCircle, BarChart3, ChevronLeft, Copy, Database } from 'lucide-react'
+import { AlertCircle, BarChart3, ChevronLeft, Copy, Database, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -107,6 +107,30 @@ function ExampleMetadata({ example }: { example: ExampleItem }) {
       </dd>
       <dt className="text-[11px] uppercase tracking-widest text-text-3">Created</dt>
       <dd className="text-right font-mono text-[12.5px] text-text-1">{formatDate(example.created_at)}</dd>
+      {example.reasoning_model_used && (
+        <>
+          <dt className="text-[11px] uppercase tracking-widest text-text-3">Reasoning model</dt>
+          <dd className="text-right font-mono text-[12.5px] text-text-1">{example.reasoning_model_used}</dd>
+        </>
+      )}
+    </div>
+  )
+}
+
+
+function ReasoningBlock({ reasoning, model }: { reasoning: string; model: string | null | undefined }) {
+  return (
+    <div className="rounded-[var(--radius-xl)] border border-primary/30 bg-accent-soft/40 p-[var(--radius-xl)] transition-colors">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="inline-flex items-center gap-1 rounded-md bg-accent-soft px-2 py-1 text-[10.5px] font-semibold uppercase tracking-widest text-primary">
+          <Sparkles className="size-3" />
+          Reasoning
+        </span>
+        {model && (
+          <span className="font-mono text-[10.5px] text-text-3">{model}</span>
+        )}
+      </div>
+      <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-1">{reasoning}</p>
     </div>
   )
 }
@@ -375,6 +399,21 @@ function JobDetailContent() {
             {selectedExample && (() => {
               const idx = examples.findIndex((e) => e.id === selectedExample.id)
               const turns = parseTurns(selectedExample)
+              // Walk the turns, mapping each assistant turn to the matching
+              // rationale by counting from 0. The reasoning array is shorter
+              // than `turns` (it only covers assistant turns), so we need a
+              // local counter rather than the global index.
+              const reasoning = (job?.reasoning_format && selectedExample.reasoning) || null
+              let assistantIdx = 0
+              const interleaved: Array<{ kind: 'reasoning'; text: string } | { kind: 'turn'; turn: typeof turns[number] }> = []
+              for (const turn of turns) {
+                const isAssistant = ['gpt', 'assistant'].includes(turn.role)
+                if (isAssistant && reasoning && assistantIdx < reasoning.length) {
+                  interleaved.push({ kind: 'reasoning', text: reasoning[assistantIdx] })
+                  assistantIdx += 1
+                }
+                interleaved.push({ kind: 'turn', turn })
+              }
               return (
                 <div className="mx-auto max-w-3xl">
                   <h2 className="mb-5 flex items-baseline gap-2">
@@ -384,10 +423,26 @@ function JobDetailContent() {
                     <span className="font-serif italic text-3xl text-text-0 tabular-nums leading-none">
                       #{idx + 1}
                     </span>
+                    {job?.reasoning_format && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+                        <Sparkles className="size-3" />
+                        Reasoning ({job.reasoning_format})
+                      </span>
+                    )}
                   </h2>
                   <div className="space-y-3">
                     {turns.length > 0 ? (
-                      turns.map((turn, i) => <TurnBlock key={i} turn={turn} />)
+                      interleaved.map((item, i) =>
+                        item.kind === 'reasoning' ? (
+                          <ReasoningBlock
+                            key={`r-${i}`}
+                            reasoning={item.text}
+                            model={selectedExample.reasoning_model_used}
+                          />
+                        ) : (
+                          <TurnBlock key={`t-${i}`} turn={item.turn} />
+                        ),
+                      )
                     ) : (
                       <p className="italic text-sm text-text-3">
                         Unable to parse content.

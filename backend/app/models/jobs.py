@@ -89,12 +89,17 @@ class ProgressJson(BaseModel):
         "merging_copying",
         "merging_exporting",
         "merging_computing_stats",
+        "reasoning_copying",
+        "reasoning_generating",
+        "reasoning_exporting",
+        "reasoning_computing_stats",
     ]
     current_category: Optional[str] = None
     categories: Dict[str, CategoryProgress]
     judge_stats: Optional[JudgeStats] = None
     actual_cost: Optional[float] = None
     judge_cost: Optional[float] = None
+    reasoning_cost: Optional[float] = None
 
 
 class JobResponse(BaseModel):
@@ -104,6 +109,8 @@ class JobResponse(BaseModel):
     progress: Optional[ProgressJson] = None
     created_at: str
     updated_at: str
+    parent_job_id: Optional[str] = None
+    reasoning_format: Optional[Literal["inline", "separate"]] = None
 
 
 class JobListItem(BaseModel):
@@ -119,6 +126,9 @@ class JobListItem(BaseModel):
     actual_cost: float | None = None
     judge_cost: float | None = None
     is_merged: bool = False
+    parent_job_id: str | None = None
+    reasoning_format: Literal["inline", "separate"] | None = None
+    reasoning_models: List[str] = Field(default_factory=list)
 
 
 class ResumableJobsResponse(BaseModel):
@@ -136,6 +146,12 @@ class ExampleResponse(BaseModel):
     judge_score: Optional[int] = None
     category: str = ""
     model: str = ""
+    # Per-turn rationales (one entry per assistant turn in `content`). None
+    # for non-reasoning jobs and for examples skipped during the reasoning
+    # pass. Frontend renders each entry as a `<think>`-style block before
+    # the matching assistant turn.
+    reasoning: Optional[List[str]] = None
+    reasoning_model_used: Optional[str] = None
 
 
 # ---- Deduplication ----
@@ -209,6 +225,12 @@ class CategoryRunInfo(BaseModel):
     judge_model_is_default: bool = False
     target: int
     completed: int
+    # Populated only on reasoning jobs (post-process pass). Names the model
+    # that produced the per-turn rationales for this category — useful for
+    # HF model card transparency since reasoning often uses a different
+    # (e.g. cheaper / neutral) model than the gen pass.
+    reasoning_model: Optional[str] = None
+    reasoning_provider: Optional[str] = None
 
 
 class RunSummary(BaseModel):
@@ -246,3 +268,39 @@ class MergeResponse(BaseModel):
     path: str
     total_examples: int
     source_jobs: int
+
+
+# ---- Reasoning post-process ----
+
+
+class ReasoningCategoryConfig(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    model: str = Field(..., min_length=1, max_length=200)
+    provider_id: str = Field(..., min_length=1)
+    # OpenRouter-style routing string (e.g. "Anthropic", "DeepSeek"). Pinned
+    # so the reasoning pass goes through a specific upstream provider on
+    # OpenRouter for deterministic latency / pricing / quality. Mirrors the
+    # gen pipeline's `CategoryConfig.provider`. Silently ignored for backends
+    # whose `capabilities.supports_provider_routing` is False (Ollama, LM Studio).
+    provider_route: str | None = None
+
+
+class ReasoningRequest(BaseModel):
+    # Inline = `<think>...</think>` injected at the start of the first assistant
+    # turn at export time. Separate = top-level `reasoning` field in JSONL.
+    # Chosen per-pass and frozen on the job; merge rejects mixed formats.
+    format: Literal["inline", "separate"]
+    # One entry per source category — every category must be covered. Schema
+    # enforces 1..64 to match JobConfig.categories.
+    categories: List[ReasoningCategoryConfig] = Field(..., min_length=1, max_length=64)
+    temperature: float = Field(default=0.5, ge=0.0, le=1.5)
+    # Reasoning prose targets 50-150 tokens; bump default to 512 to leave
+    # headroom for reasoning-capable models that burn budget on <think> blocks
+    # before the kept content lands.
+    max_tokens: int = Field(default=512, ge=128, le=2048)
+
+
+class ReasoningResponse(BaseModel):
+    job_id: str
+    parent_job_id: str
+    total_examples: int

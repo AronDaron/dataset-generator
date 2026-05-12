@@ -19,6 +19,10 @@ export const STAGE_LABELS: Record<string, string> = {
   merging_copying:         'Copying examples',
   merging_exporting:       'Writing JSONL',
   merging_computing_stats: 'Computing statistics',
+  reasoning_copying:        'Copying source examples',
+  reasoning_generating:     'Generating reasoning',
+  reasoning_exporting:      'Writing JSONL',
+  reasoning_computing_stats: 'Computing statistics',
 }
 
 export interface StatusTone {

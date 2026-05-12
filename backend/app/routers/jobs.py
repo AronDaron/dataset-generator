@@ -27,10 +27,13 @@ from app.models.jobs import (
     JobResponse,
     JobStatsResponse,
     ProgressJson,
+    ReasoningRequest,
+    ReasoningResponse,
     ResumableJobsResponse,
     RunSummary,
 )
 from app.services.dedup_service import find_duplicates
+from app.services.example_schema import _parse_reasoning as _decode_reasoning
 from app.services.embedding_service import resolve_embedding_provider_id
 from app.services.event_log import clear_events, get_events
 from app.services.export_service import export_job
@@ -189,6 +192,7 @@ def _unique_source_globals(source_configs: list[dict], *, field: str) -> list[st
 def _row_to_job_response(row) -> JobResponse:
     config = _parse_config(row)
     progress = _parse_progress(row)
+    keys = row.keys() if hasattr(row, "keys") else ()
     return JobResponse(
         id=row["id"],
         status=row["status"],
@@ -196,6 +200,8 @@ def _row_to_job_response(row) -> JobResponse:
         progress=progress,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        parent_job_id=row["parent_job_id"] if "parent_job_id" in keys else None,
+        reasoning_format=row["reasoning_format"] if "reasoning_format" in keys else None,
     )
 
 
@@ -215,6 +221,29 @@ def _row_to_list_item(
 
     raw_cfg = _raw_config(row)
     is_merged = _is_merged(raw_cfg)
+
+    # Reasoning metadata: present only on reasoning jobs (post-process pass).
+    # parent_job_id points at the source dataset whose examples were copied.
+    parent_job_id: Optional[str] = None
+    reasoning_format = None
+    reasoning_models: list[str] = []
+    keys = row.keys() if hasattr(row, "keys") else ()
+    if "parent_job_id" in keys:
+        parent_job_id = row["parent_job_id"]
+    if "reasoning_format" in keys:
+        reasoning_format = row["reasoning_format"]
+    if "reasoning_category_models" in keys and row["reasoning_category_models"]:
+        try:
+            cat_map = json.loads(row["reasoning_category_models"])
+            seen: dict[str, None] = {}
+            for entry in cat_map.values():
+                if isinstance(entry, dict):
+                    m = entry.get("model")
+                    if m:
+                        seen[m] = None
+            reasoning_models = list(seen.keys())
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            reasoning_models = []
 
     if is_merged and source_configs_map is not None and raw_cfg:
         # For merged jobs, derive real globals and per-category models from the
@@ -253,6 +282,9 @@ def _row_to_list_item(
         actual_cost=actual_cost,
         judge_cost=judge_cost,
         is_merged=is_merged,
+        parent_job_id=parent_job_id,
+        reasoning_format=reasoning_format,
+        reasoning_models=reasoning_models,
     )
 
 
@@ -369,6 +401,7 @@ async def list_jobs(
     """List all jobs ordered by creation time descending."""
     async with await db.execute(
         "SELECT j.id, j.status, j.config_json, j.progress_json, j.created_at, j.updated_at, "
+        "j.parent_job_id, j.reasoning_format, j.reasoning_category_models, "
         "(SELECT COUNT(*) FROM examples WHERE examples.job_id = j.id) AS actual_count "
         "FROM jobs j ORDER BY j.created_at DESC"
     ) as cursor:
@@ -385,6 +418,7 @@ async def list_resumable_jobs(
     """List jobs that can be resumed (interrupted, cancelled, or failed; with at least 1 example)."""
     async with await db.execute(
         "SELECT j.id, j.status, j.config_json, j.progress_json, j.created_at, j.updated_at, "
+        "j.parent_job_id, j.reasoning_format, j.reasoning_category_models, "
         "(SELECT COUNT(*) FROM examples WHERE examples.job_id = j.id) AS actual_count "
         "FROM jobs j "
         "WHERE j.status IN ('interrupted', 'cancelled', 'failed') "
@@ -409,7 +443,8 @@ async def resume_job_endpoint(
         raise HTTPException(status_code=409, detail="Job is already running")
 
     async with await db.execute(
-        "SELECT id, status, config_json, progress_json, created_at, updated_at "
+        "SELECT id, status, config_json, progress_json, created_at, updated_at, "
+        "       reasoning_format, reasoning_category_models, parent_job_id "
         "FROM jobs WHERE id = ?",
         (job_id,),
     ) as cursor:
@@ -421,6 +456,67 @@ async def resume_job_endpoint(
             status_code=409,
             detail=f"Job is {row['status']}, only interrupted, cancelled, or failed jobs can be resumed",
         )
+
+    is_reasoning_job = (
+        row["reasoning_format"] is not None and row["parent_job_id"] is not None
+    )
+
+    if is_reasoning_job:
+        # Reasoning jobs use a different (provider_id, model) set than gen jobs
+        # — validate against `reasoning_category_models` so we don't reject the
+        # resume just because the source's gen providers got disabled later.
+        try:
+            cat_map = json.loads(row["reasoning_category_models"] or "{}")
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=422, detail=f"Reasoning config malformed: {exc}",
+            ) from exc
+        required_r: dict[str, set[str]] = {}
+        for cat_name, cfg in cat_map.items():
+            if not isinstance(cfg, dict):
+                continue
+            pid = cfg.get("provider_id")
+            m = cfg.get("model")
+            if pid and m:
+                required_r.setdefault(pid, set()).add(m)
+        for prov_id, models_required in required_r.items():
+            try:
+                prov = await get_provider(db, prov_id)
+                available = await prov.list_models()
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=422, detail=f"Cannot verify reasoning models: {exc}"
+                ) from exc
+            available_ids = {m.id for m in available}
+            missing = [m for m in models_required if m not in available_ids]
+            if missing:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Cannot resume reasoning: model(s) no longer available "
+                        f"on provider {prov_id}: {', '.join(missing)}"
+                    ),
+                )
+
+        now = _now_iso()
+        await db.execute(
+            "UPDATE jobs SET status = 'pending', updated_at = ? WHERE id = ?",
+            (now, job_id),
+        )
+        await db.commit()
+
+        # Spawn the reasoning resume task. resume_reasoning_job re-marks the
+        # row as pending internally too — harmless duplicate.
+        from app.services.reasoning_service import resume_reasoning_job
+        asyncio.create_task(resume_reasoning_job(job_id))
+
+        async with await db.execute(
+            "SELECT id, status, config_json, progress_json, created_at, updated_at "
+            "FROM jobs WHERE id = ?",
+            (job_id,),
+        ) as cursor:
+            refreshed = await cursor.fetchone()
+        return _row_to_job_response(refreshed)
 
     config = JobConfig.model_validate_json(row["config_json"])
 
@@ -468,12 +564,34 @@ async def resume_job_endpoint(
     asyncio.create_task(resume_job(job_id))
 
     async with await db.execute(
-        "SELECT id, status, config_json, progress_json, created_at, updated_at "
+        "SELECT id, status, config_json, progress_json, created_at, updated_at, "
+        "       parent_job_id, reasoning_format "
         "FROM jobs WHERE id = ?",
         (job_id,),
     ) as cursor:
         refreshed = await cursor.fetchone()
     return _row_to_job_response(refreshed)
+
+
+@router.post("/{source_job_id}/add-reasoning", response_model=ReasoningResponse, status_code=202)
+async def add_reasoning_endpoint(
+    source_job_id: str,
+    body: ReasoningRequest,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> ReasoningResponse:
+    """Spawn a reasoning post-process job that copies examples from `source_job_id`
+    and generates reasoning prose per example.
+
+    The reasoning pass is a *new* row in `jobs` with `parent_job_id` pointing at
+    the source. The source dataset is never mutated. Export composes the final
+    JSONL on the fly based on `reasoning_format` (inline `<think>` injected into
+    the first assistant turn, or top-level `reasoning` field).
+    """
+    # Local import — reasoning_service imports from this module (helpers like
+    # _is_merged), so a top-level import would create a circular dependency.
+    from app.services.reasoning_service import spawn_reasoning_job
+
+    return await spawn_reasoning_job(source_job_id, body, db)
 
 
 @router.post("/{job_id}/dismiss", response_model=JobResponse, status_code=200)
@@ -506,7 +624,8 @@ async def dismiss_job_endpoint(
     await db.commit()
 
     async with await db.execute(
-        "SELECT id, status, config_json, progress_json, created_at, updated_at "
+        "SELECT id, status, config_json, progress_json, created_at, updated_at, "
+        "       parent_job_id, reasoning_format "
         "FROM jobs WHERE id = ?",
         (job_id,),
     ) as cursor:
@@ -521,7 +640,8 @@ async def get_job(
 ) -> JobResponse:
     """Get full job details including progress."""
     async with await db.execute(
-        "SELECT id, status, config_json, progress_json, created_at, updated_at "
+        "SELECT id, status, config_json, progress_json, created_at, updated_at, "
+        "       parent_job_id, reasoning_format "
         "FROM jobs WHERE id = ?",
         (job_id,),
     ) as cursor:
@@ -734,15 +854,30 @@ async def _stream_job_progress(
     tick = 0
     while True:
         async with await db.execute(
-            "SELECT status, progress_json FROM jobs WHERE id = ?", (job_id,)
+            "SELECT status, progress_json, reasoning_format FROM jobs WHERE id = ?",
+            (job_id,),
         ) as cursor:
             job_row = await cursor.fetchone()
 
-        async with await db.execute(
-            "SELECT id, job_id, content_json, format, tokens, created_at, judge_score, category, model "
-            "FROM examples WHERE job_id = ? ORDER BY created_at DESC LIMIT 5",
-            (job_id,),
-        ) as cursor:
+        # Reasoning jobs feed the dashboard a "live growing" list mirroring
+        # the gen flow: an example only surfaces once it has reasoning prose.
+        # Rows that are physically copied but still pending generation stay
+        # hidden so the user doesn't see 1k pre-baked examples appear at t=0.
+        is_reasoning_job = job_row is not None and job_row["reasoning_format"]
+        if is_reasoning_job:
+            ex_sql = (
+                "SELECT id, job_id, content_json, format, tokens, created_at, judge_score, "
+                "category, model, reasoning, reasoning_model_used "
+                "FROM examples WHERE job_id = ? AND reasoning IS NOT NULL "
+                "ORDER BY created_at DESC LIMIT 5"
+            )
+        else:
+            ex_sql = (
+                "SELECT id, job_id, content_json, format, tokens, created_at, judge_score, "
+                "category, model, reasoning, reasoning_model_used "
+                "FROM examples WHERE job_id = ? ORDER BY created_at DESC LIMIT 5"
+            )
+        async with await db.execute(ex_sql, (job_id,)) as cursor:
             ex_rows = await cursor.fetchall()
 
         status = job_row["status"]
@@ -758,6 +893,11 @@ async def _stream_job_progress(
                 "judge_score": r["judge_score"],
                 "category": r["category"],
                 "model": r["model"],
+                # Decode the JSON-array column into a list for the SSE payload
+                # — the frontend renders each entry as a <think> block before
+                # the matching assistant turn.
+                "reasoning": _decode_reasoning(r["reasoning"]) or None,
+                "reasoning_model_used": r["reasoning_model_used"],
             }
             for r in ex_rows
         ]
@@ -838,18 +978,40 @@ async def list_examples(
     offset: int = Query(default=0, ge=0),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> list[ExampleResponse]:
-    """Paginated list of examples for a job, newest first."""
+    """Paginated list of examples for a job, newest first.
+
+    For *running* reasoning jobs the result is filtered to rows where the
+    reasoning prose has already been generated (`reasoning IS NOT NULL`) so
+    the history view grows from 0 the same way the live dashboard does —
+    physically-copied-but-pending rows stay hidden until they actually get
+    their `<think>`. Completed reasoning jobs return everything so skipped
+    rows (NULL reasoning) are still visible.
+    """
     async with await db.execute(
-        "SELECT id FROM jobs WHERE id = ?", (job_id,)
+        "SELECT status, reasoning_format FROM jobs WHERE id = ?", (job_id,)
     ) as cursor:
-        if not await cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Job not found")
-    async with await db.execute(
-        "SELECT id, job_id, content_json, format, tokens, created_at, judge_score, category, model "
-        "FROM examples WHERE job_id = ? "
-        "ORDER BY created_at DESC LIMIT ? OFFSET ?",
-        (job_id, limit, offset),
-    ) as cursor:
+        job_row = await cursor.fetchone()
+    if not job_row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    filter_pending = (
+        job_row["reasoning_format"] is not None
+        and job_row["status"] == "running"
+    )
+
+    if filter_pending:
+        sql = (
+            "SELECT id, job_id, content_json, format, tokens, created_at, judge_score, "
+            "category, model, reasoning, reasoning_model_used "
+            "FROM examples WHERE job_id = ? AND reasoning IS NOT NULL "
+            "ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        )
+    else:
+        sql = (
+            "SELECT id, job_id, content_json, format, tokens, created_at, judge_score, "
+            "category, model, reasoning, reasoning_model_used "
+            "FROM examples WHERE job_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        )
+    async with await db.execute(sql, (job_id, limit, offset)) as cursor:
         rows = await cursor.fetchall()
     return [
         ExampleResponse(
@@ -862,6 +1024,11 @@ async def list_examples(
             judge_score=row["judge_score"],
             category=row["category"],
             model=row["model"],
+            # DB stores reasoning as a JSON array of strings (one per
+            # assistant turn). _decode_reasoning normalises NULL / legacy
+            # single-string rows into a list.
+            reasoning=_decode_reasoning(row["reasoning"]) or None,
+            reasoning_model_used=row["reasoning_model_used"],
         )
         for row in rows
     ]
@@ -875,12 +1042,20 @@ def _build_run_summary(
     config: JobConfig,
     progress: Optional[ProgressJson],
     source_configs: Optional[list[dict]] = None,
+    reasoning_category_models: Optional[dict[str, dict]] = None,
+    provider_names: Optional[dict[str, str]] = None,
 ) -> RunSummary:
     """Build RunSummary from a jobs row + parsed config/progress.
 
     For merged jobs, caller should pass the list of source job raw configs via
     `source_configs`; per-category gen/judge model names are then derived as
     unique-joined strings from the sources instead of the merged placeholder.
+
+    For reasoning jobs, caller should pass ``reasoning_category_models`` (parsed
+    ``jobs.reasoning_category_models`` JSON: ``{cat_name: {model, provider_id,
+    provider_route}}``) and ``provider_names`` (``{provider_id: human_name}``).
+    Each CategoryRunInfo then carries the reasoning model + a display string
+    for the provider (``"OpenRouter / Anthropic"`` when a route is pinned).
     """
     status = row["status"]
     started_at = row["created_at"]
@@ -954,6 +1129,21 @@ def _build_run_summary(
         target = cat_progress.target if cat_progress else 0
         completed = cat_progress.completed if cat_progress else 0
 
+        reasoning_model: Optional[str] = None
+        reasoning_provider: Optional[str] = None
+        if reasoning_category_models:
+            cfg_for_cat = reasoning_category_models.get(cat.name)
+            if isinstance(cfg_for_cat, dict):
+                reasoning_model = cfg_for_cat.get("model")
+                pid = cfg_for_cat.get("provider_id")
+                route = cfg_for_cat.get("provider_route")
+                # Display: "<Provider Name> / <route>" if a route was pinned,
+                # else just the provider name. Fall back to raw id when the
+                # provider was deleted from the registry.
+                if pid:
+                    pname = (provider_names or {}).get(pid, pid)
+                    reasoning_provider = f"{pname} / {route}" if route else pname
+
         cat_infos.append(
             CategoryRunInfo(
                 name=cat.name,
@@ -965,6 +1155,8 @@ def _build_run_summary(
                 judge_model_is_default=judge_is_default,
                 target=target,
                 completed=completed,
+                reasoning_model=reasoning_model,
+                reasoning_provider=reasoning_provider,
             )
         )
 
@@ -996,7 +1188,8 @@ async def get_job_stats(
     the migration (stats_json IS NULL).
     """
     async with await db.execute(
-        "SELECT id, status, config_json, progress_json, stats_json, created_at, updated_at "
+        "SELECT id, status, config_json, progress_json, stats_json, created_at, updated_at, "
+        "       reasoning_format, reasoning_category_models "
         "FROM jobs WHERE id = ?",
         (job_id,),
     ) as cursor:
@@ -1017,7 +1210,35 @@ async def get_job_stats(
         direct_sources = [source_map[sid] for sid in source_ids if sid in source_map]
         source_configs = _resolve_leaf_sources(direct_sources, source_map)
 
-    run_summary = _build_run_summary(row, config, progress, source_configs)
+    # Reasoning job — parse per-category model/provider/route from the job
+    # row and resolve provider_id → human name for display in the report.
+    reasoning_cat_models: Optional[dict[str, dict]] = None
+    provider_names: dict[str, str] = {}
+    if row["reasoning_format"] and row["reasoning_category_models"]:
+        try:
+            reasoning_cat_models = json.loads(row["reasoning_category_models"])
+        except (json.JSONDecodeError, TypeError):
+            reasoning_cat_models = None
+        if isinstance(reasoning_cat_models, dict) and reasoning_cat_models:
+            pids = {
+                cfg.get("provider_id")
+                for cfg in reasoning_cat_models.values()
+                if isinstance(cfg, dict) and cfg.get("provider_id")
+            }
+            if pids:
+                placeholders = ",".join("?" * len(pids))
+                async with await db.execute(
+                    f"SELECT id, name FROM providers WHERE id IN ({placeholders})",
+                    list(pids),
+                ) as cur:
+                    for r in await cur.fetchall():
+                        provider_names[r["id"]] = r["name"]
+
+    run_summary = _build_run_summary(
+        row, config, progress, source_configs,
+        reasoning_category_models=reasoning_cat_models,
+        provider_names=provider_names,
+    )
 
     stats_json = row["stats_json"] if "stats_json" in row.keys() else None
     if stats_json:
