@@ -96,6 +96,7 @@ https://github.com/user-attachments/assets/73f43f6c-a5b8-47c9-8de2-8e016e57cfef
 - **Embedding-based deduplication** — cosine similarity over OpenRouter embeddings
 - **Quality Report** — judge histogram, token stats, efficiency, export to JSON/CSV
 - **Dataset history + in-app preview** — turn-by-turn rendering, code highlighting, dataset merging
+- **Reasoning post-process** — add first-person `<think>…</think>` rationales to any completed dataset; pick a different model (e.g. cheaper / neutral) than the one that generated the answers
 - **HuggingFace Hub upload** — one-click push to your repo
 
 
@@ -128,6 +129,25 @@ Dataset generation is more demanding than general chat — the model has to prod
 | **32B+** (Qwen2.5-Coder-32B, DeepSeek-V3, GLM-4-32B) | Recommended target | Quality approaches cloud providers |
 
 If you don't have the GPU for 14B+, **OpenRouter is the better path** — same pipeline, no hardware constraint, open-source models cost cents per 1000 examples.
+
+---
+
+## Reasoning post-process
+
+Turn any completed dataset into a reasoning-style training set — every assistant turn gets a first-person internal monologue (`<think>…</think>`) explaining the thought process before the actual answer. Matches the DeepSeek-R1 / Qwen3-thinking convention out of the box.
+
+Hit **Add Reasoning** on any completed dataset in `/history`, pick a model per category (independent from the gen model — common pattern: cloud generator + local 14B for the reasoning pass for free, neutral rationales), choose a format, and a new reasoning job is created — the source dataset is never modified.
+
+**Two export formats:**
+
+| Format | What lands in JSONL | When to pick |
+|---|---|---|
+| **Inline** | `<think>…</think>` injected at the start of every assistant turn | Broadest compatibility — Axolotl, Unsloth, Llama-Factory, TRL all read it out of the box. Standard since DeepSeek-R1. |
+| **Separate** | Top-level `reasoning: [...]` array (one entry per assistant turn) | Cleaner schema, needs a matching trainer template. Useful for ablation studies or custom training pipelines. |
+
+Each format is its own job — re-run on the same source with a different format and you get an independent dataset, no conflict. You can publish both side-by-side on HuggingFace and cross-link them in the model card.
+
+**Pitch for fine-tuners:** the reasoning pass model is independent from the gen model, so the rationales aren't post-hoc justifications written by the same model that produced the answer — they're a separate analysis, which tends to expose blind spots and reduce style-leak from a single source.
 
 ---
 
