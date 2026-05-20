@@ -39,13 +39,19 @@ async def init_db() -> None:
         logger.exception("Startup WAL checkpoint failed (non-fatal)")
 
     # Remove orphaned JSONL files — files in datasets_dir with no matching job in DB.
+    # Two flavours per job can exist: {id}.jsonl and {id}_with_metadata.jsonl
+    # (the latter is created on demand by POST /add-metadata). Both have the
+    # job_id as a prefix on the stem, so strip the suffix before matching.
     datasets_dir = settings.datasets_dir
     if datasets_dir.exists():
         async with await _db.execute("SELECT id FROM jobs") as cursor:
             known_ids = {row[0] for row in await cursor.fetchall()}
         removed = 0
         for f in datasets_dir.glob("*.jsonl"):
-            if f.stem not in known_ids:
+            stem = f.stem
+            if stem.endswith("_with_metadata"):
+                stem = stem[: -len("_with_metadata")]
+            if stem not in known_ids:
                 try:
                     f.unlink()
                     removed += 1

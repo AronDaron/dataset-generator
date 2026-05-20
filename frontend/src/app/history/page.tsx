@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, AlertCircle, CheckCircle2, XCircle, Upload, Merge, RotateCcw, X, Sparkles } from 'lucide-react'
+import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, AlertCircle, CheckCircle2, XCircle, Upload, Merge, RotateCcw, X, Sparkles, Tags, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { addReasoning, getJob, getJobs, getHfToken, deleteJobWithProgress, openDatasetsFolder, findDuplicates, mergeDatasets, resumeJob, dismissJob, type JobListItem, type DeleteProgress, type ReasoningRequest } from '@/lib/api'
+import { addMetadata, addReasoning, getJob, getJobs, getHfToken, deleteJobWithProgress, openDatasetsFolder, findDuplicates, mergeDatasets, resumeJob, dismissJob, type AddMetadataResponse, type JobListItem, type DeleteProgress, type ReasoningRequest } from '@/lib/api'
+import { isPywebview } from '@/lib/runtime'
 import { UploadHfModal } from '@/components/history/UploadHfModal'
 import { AddReasoningDialog } from '@/components/history/AddReasoningDialog'
 import { StatusLegendPopover } from '@/components/jobs/StatusLegendPopover'
@@ -144,9 +145,11 @@ interface JobRowProps {
   dismissingId: string | null
   onAddReasoning: (job: JobListItem) => void
   reasoningStartingId: string | null
+  onAddMetadata: (id: string) => void
+  metadataAddingId: string | null
 }
 
-function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, onOpenFolder, onUpload, selected, onToggle, onResume, resumingId, onDismiss, dismissingId, onAddReasoning, reasoningStartingId }: JobRowProps) {
+function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, onOpenFolder, onUpload, selected, onToggle, onResume, resumingId, onDismiss, dismissingId, onAddReasoning, reasoningStartingId, onAddMetadata, metadataAddingId }: JobRowProps) {
   const [dedupState, setDedupState] = useState<'idle' | 'scanning' | 'done'>('idle')
   const [dedupCount, setDedupCount] = useState(0)
 
@@ -299,6 +302,21 @@ function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, 
           <Button
             variant="outline"
             size="sm"
+            onClick={() => onAddMetadata(job.id)}
+            disabled={metadataAddingId === job.id}
+            title="Generate a JSONL with per-example category, model_used, judge_score and tokens alongside conversations"
+          >
+            {metadataAddingId === job.id ? (
+              <><Loader2 className="size-3.5 animate-spin" /> Adding…</>
+            ) : (
+              <><Tags className="size-3.5" /> Add Metadata</>
+            )}
+          </Button>
+        )}
+        {job.status === 'completed' && job.completed > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => onUpload(job.id)}
           >
             <Upload className="size-3.5" />
@@ -388,6 +406,13 @@ export default function HistoryPage() {
   const [reasoningSourceJob, setReasoningSourceJob] = useState<JobListItem | null>(null)
   const [reasoningSourceCategories, setReasoningSourceCategories] = useState<string[]>([])
   const [reasoningStartingId, setReasoningStartingId] = useState<string | null>(null)
+  const [metadataAddingId, setMetadataAddingId] = useState<string | null>(null)
+  const [metadataResult, setMetadataResult] = useState<
+    | { jobId: string; mode: 'pywebview'; path: string }
+    | { jobId: string; mode: 'browser'; downloadUrl: string; filename: string }
+    | { jobId: string; mode: 'error'; message: string }
+    | null
+  >(null)
 
   useEffect(() => {
     Promise.all([getJobs(), getHfToken()])
@@ -600,6 +625,33 @@ export default function HistoryPage() {
     }
   }
 
+  async function handleAddMetadata(jobId: string) {
+    setMetadataAddingId(jobId)
+    setMetadataResult(null)
+    try {
+      const result: AddMetadataResponse = await addMetadata(jobId)
+      const filename = result.path.split(/[/\\]/).pop() ?? `${jobId}_with_metadata.jsonl`
+      if (isPywebview()) {
+        setMetadataResult({ jobId, mode: 'pywebview', path: result.path })
+      } else {
+        setMetadataResult({
+          jobId,
+          mode: 'browser',
+          downloadUrl: `${BACKEND_URL}${result.download_url}`,
+          filename,
+        })
+      }
+    } catch (e) {
+      setMetadataResult({
+        jobId,
+        mode: 'error',
+        message: e instanceof Error ? e.message : 'Add Metadata failed',
+      })
+    } finally {
+      setMetadataAddingId(null)
+    }
+  }
+
   async function handleReasoningSubmit(req: ReasoningRequest) {
     if (!reasoningSourceJob) return
     const result = await addReasoning(reasoningSourceJob.id, req)
@@ -787,6 +839,65 @@ export default function HistoryPage() {
           </div>
         )}
 
+        {/* Add Metadata result banner */}
+        {metadataResult && (
+          <div
+            className={cn(
+              'flex flex-wrap items-center gap-3 rounded-xl border px-5 py-3 text-sm',
+              metadataResult.mode === 'error'
+                ? 'border-transparent bg-destructive/10 text-destructive'
+                : 'border-primary/30 bg-primary/5 text-text-1',
+            )}
+          >
+            {metadataResult.mode === 'error' ? (
+              <>
+                <AlertCircle className="size-4 shrink-0" />
+                <span className="flex-1">{metadataResult.message}</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="size-4 shrink-0 text-ok" />
+                <span className="flex-1">
+                  Metadata JSONL ready
+                  {metadataResult.mode === 'pywebview' && (
+                    <span className="ml-2 break-all font-mono text-xs text-text-3">
+                      {metadataResult.path}
+                    </span>
+                  )}
+                </span>
+                {metadataResult.mode === 'pywebview' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenFolder(metadataResult.jobId)}
+                  >
+                    <FolderOpen className="size-3.5" />
+                    Open folder
+                  </Button>
+                )}
+                {metadataResult.mode === 'browser' && (
+                  <a
+                    href={metadataResult.downloadUrl}
+                    download={metadataResult.filename}
+                  >
+                    <Button variant="outline" size="sm">
+                      <Download className="size-3.5" />
+                      Download JSONL
+                    </Button>
+                  </a>
+                )}
+              </>
+            )}
+            <button
+              onClick={() => setMetadataResult(null)}
+              className="ml-2 rounded p-1 text-text-3 hover:bg-muted hover:text-text-0"
+              aria-label="Dismiss"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* Content */}
         {loading && (
           <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-text-3">
@@ -838,6 +949,8 @@ export default function HistoryPage() {
                 onToggle={handleToggle}
                 onAddReasoning={handleAddReasoningClick}
                 reasoningStartingId={reasoningStartingId}
+                onAddMetadata={handleAddMetadata}
+                metadataAddingId={metadataAddingId}
               />
             ))}
           </div>

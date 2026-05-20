@@ -359,6 +359,47 @@ def _parse_reasoning(reasoning: str | None) -> list[str]:
     return []
 
 
+_METADATA_KEY = "metadata"
+
+
+def build_metadata_block(row: dict[str, Any]) -> dict[str, Any]:
+    """Build the per-example ``metadata`` block from an ``examples`` row.
+
+    Keys are stable and always present (``judge_score`` is ``None`` for
+    jobs without judge — keep the key for consistent JSONL shape across
+    rows). ``reasoning_model_used`` only appears when the row has one
+    (mirror the gen ``model_used`` convention from P2-4).
+    """
+    block: dict[str, Any] = {
+        "category": row["category"],
+        "model_used": row["model"],
+        "judge_score": row["judge_score"],
+        "prompt_tokens": row["prompt_tokens"],
+        "completion_tokens": row["completion_tokens"],
+    }
+    reasoning_model = row["reasoning_model_used"] if "reasoning_model_used" in row.keys() else None
+    if reasoning_model:
+        block["reasoning_model_used"] = reasoning_model
+    return block
+
+
+def attach_metadata(line: str, metadata: dict[str, Any]) -> str:
+    """Inject a top-level ``metadata`` dict into an already-serialized JSONL line.
+
+    Write-path only — the input ``line`` is a clean JSONL record produced by
+    ``serialize_for_jsonl`` / ``serialize_with_reasoning`` (after defensive
+    strip), and ``metadata`` is built by ``build_metadata_block``. Returns a
+    minified JSON line without trailing newline, same convention as the
+    sibling serializers.
+    """
+    parsed = json.loads(line)
+    if not isinstance(parsed, dict):
+        # Unsupported payload (shouldn't happen post-strip) — pass through.
+        return line
+    parsed[_METADATA_KEY] = metadata
+    return json.dumps(parsed, ensure_ascii=False)
+
+
 def serialize_with_reasoning(
     content_json: str,
     fmt: str,

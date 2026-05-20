@@ -558,12 +558,29 @@ export interface HfUploadResponse {
 
 export async function uploadToHuggingFace(
   jobId: string,
-  req: { repo_name: string; private: boolean },
+  req: { repo_name: string; private: boolean; with_metadata?: boolean },
 ): Promise<HfUploadResponse> {
   return request<HfUploadResponse>(`/api/datasets/${jobId}/upload-hf`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
+  })
+}
+
+export interface AddMetadataResponse {
+  path: string
+  job_id: string
+  download_url: string
+}
+
+/**
+ * Generate a metadata-enriched JSONL alongside the canonical one
+ * ({id}_with_metadata.jsonl). Two consumers in the UI: pywebview hosts use
+ * `path` + "Open folder"; browser-hosted frontends use `download_url`.
+ */
+export async function addMetadata(jobId: string): Promise<AddMetadataResponse> {
+  return request<AddMetadataResponse>(`/api/jobs/${jobId}/add-metadata`, {
+    method: 'POST',
   })
 }
 

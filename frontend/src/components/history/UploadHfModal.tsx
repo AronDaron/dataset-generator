@@ -20,6 +20,7 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
   const [state, setState] = useState<ModalState>('form')
   const [repoName, setRepoName] = useState('')
   const [isPrivate, setIsPrivate] = useState(true)
+  const [includeMetadata, setIncludeMetadata] = useState(false)
   const [resultUrl, setResultUrl] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
 
@@ -30,6 +31,7 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
       setState('form')
       setRepoName('')
       setIsPrivate(true)
+      setIncludeMetadata(false)
       setResultUrl('')
       setErrorMessage('')
     }, 200)
@@ -42,6 +44,7 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
       const result = await uploadToHuggingFace(jobId, {
         repo_name: repoName.trim(),
         private: isPrivate,
+        with_metadata: includeMetadata,
       })
       setResultUrl(result.url)
       setState('success')
@@ -142,6 +145,27 @@ export function UploadHfModal({ open, onClose, jobId, hasHfToken }: UploadHfModa
                     {isPrivate
                       ? 'Only you can see this dataset.'
                       : 'Anyone can see and download this dataset.'}
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="flex cursor-pointer select-none items-start gap-2 text-sm text-text-1">
+                    <input
+                      type="checkbox"
+                      checked={includeMetadata}
+                      onChange={(e) => setIncludeMetadata(e.target.checked)}
+                      className="mt-0.5 size-4 shrink-0 accent-[oklch(0.72_0.17_145)]"
+                    />
+                    <span>
+                      Include metadata
+                      <span className="ml-2 text-xs text-text-3">
+                        category, model_used, judge_score, tokens
+                      </span>
+                    </span>
+                  </label>
+                  <p className="pl-6 text-xs text-text-3">
+                    Adds a per-example <span className="font-mono">metadata</span> block to JSONL.
+                    Trainers ignore it; the HF Dataset Viewer shows it as a filterable column.
                   </p>
                 </div>
               </div>

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from app.config import settings
 from app.database import get_db
 from app.models.jobs import MergeRequest, MergeResponse
-from app.services.export_service import export_job
+from app.services.export_service import export_job, export_job_with_metadata
 from app.services.hf_service import upload_to_huggingface
 
 router = APIRouter()
@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 class HfUploadRequest(BaseModel):
     repo_name: str = Field(..., min_length=1, max_length=200)
     private: bool = True
+    with_metadata: bool = False
 
 
 class HfUploadResponse(BaseModel):
@@ -99,11 +100,17 @@ async def upload_dataset_to_hf(
 
     hf_token: str = row["value"]
 
-    # 2. Ensure JSONL file exists (export if needed)
-    jsonl_path = settings.datasets_dir / f"{job_id}.jsonl"
+    # 2. Ensure JSONL file exists (export if needed). Two flavours: canonical
+    # {id}.jsonl or {id}_with_metadata.jsonl — picked by `with_metadata`.
+    if body.with_metadata:
+        jsonl_path = settings.datasets_dir / f"{job_id}_with_metadata.jsonl"
+        regenerate = export_job_with_metadata
+    else:
+        jsonl_path = settings.datasets_dir / f"{job_id}.jsonl"
+        regenerate = export_job
     if not jsonl_path.exists():
         try:
-            await export_job(job_id, db)
+            await regenerate(job_id, db)
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
 

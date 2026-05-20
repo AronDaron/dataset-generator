@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.config import settings
 from app.database import get_db
@@ -36,7 +36,7 @@ from app.services.dedup_service import find_duplicates
 from app.services.example_schema import _parse_reasoning as _decode_reasoning
 from app.services.embedding_service import resolve_embedding_provider_id
 from app.services.event_log import clear_events, get_events
-from app.services.export_service import export_job
+from app.services.export_service import export_job, export_job_with_metadata
 from app.services.job_runner import (
     AlreadyRunningError,
     cancel_job,
@@ -708,17 +708,24 @@ async def _maybe_await(value):
 
 async def _finalize_job_delete(db: aiosqlite.Connection, job_id: str) -> None:
     """Steps that run after all examples are out: DELETE the job row, drop
-    in-memory events, unlink the JSONL file. Shared by both delete paths."""
+    in-memory events, unlink the JSONL file(s). Shared by both delete paths.
+
+    Two flavours of JSONL can exist per job: the canonical ``{id}.jsonl``
+    and the optional ``{id}_with_metadata.jsonl`` (created on demand by
+    POST /add-metadata). Both are unlinked here.
+    """
     await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
     await db.commit()
     clear_events(job_id)
-    jsonl_path = settings.datasets_dir / f"{job_id}.jsonl"
-    logger.info("Deleting JSONL file: %s (exists=%s)", jsonl_path, jsonl_path.exists())
-    try:
-        jsonl_path.unlink(missing_ok=True)
-        logger.info("JSONL file deleted: %s", jsonl_path)
-    except Exception:
-        logger.exception("Failed to delete JSONL file: %s", jsonl_path)
+    for suffix in ("", "_with_metadata"):
+        jsonl_path = settings.datasets_dir / f"{job_id}{suffix}.jsonl"
+        if not jsonl_path.exists():
+            continue
+        try:
+            jsonl_path.unlink(missing_ok=True)
+            logger.info("JSONL file deleted: %s", jsonl_path)
+        except Exception:
+            logger.exception("Failed to delete JSONL file: %s", jsonl_path)
 
 
 @router.delete("/{job_id}", status_code=204)
@@ -969,6 +976,74 @@ async def export_job_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
     return {"path": str(path), "job_id": job_id}
+
+
+@router.post("/{job_id}/add-metadata")
+async def add_metadata_endpoint(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    """Generate a separate JSONL with per-example metadata block.
+
+    Output file lands at ``datasets_dir/{job_id}_with_metadata.jsonl`` —
+    co-exists with the no-metadata ``{job_id}.jsonl`` so HF upload of either
+    flavour stays deterministic. Idempotent (always overwrites). Returns
+    both ``path`` (for pywebview "Open folder") and ``download_url`` (for
+    browser-based hosting).
+    """
+    async with await db.execute(
+        "SELECT status FROM jobs WHERE id = ?", (job_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row["status"] != "completed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is not completed (current status: {row['status']})",
+        )
+
+    try:
+        path = await export_job_with_metadata(job_id, db)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "path": str(path),
+        "job_id": job_id,
+        "download_url": f"/api/jobs/{job_id}/download-metadata",
+    }
+
+
+@router.get("/{job_id}/download-metadata")
+async def download_metadata_endpoint(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> FileResponse:
+    """Stream the metadata-enriched JSONL to the client.
+
+    Used by browser-hosted frontends where ``Open folder`` doesn't make
+    sense (folder is on the server). In pywebview the POST already gives
+    the client the path on disk, so this endpoint is reachable but not
+    needed.
+    """
+    async with await db.execute(
+        "SELECT id FROM jobs WHERE id = ?", (job_id,)
+    ) as cursor:
+        if await cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+    target = settings.datasets_dir / f"{job_id}_with_metadata.jsonl"
+    if not target.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Metadata file not generated yet. POST /add-metadata first.",
+        )
+    return FileResponse(
+        path=target,
+        media_type="application/x-ndjson",
+        filename=f"{job_id}_with_metadata.jsonl",
+    )
 
 
 @router.get("/{job_id}/examples", response_model=list[ExampleResponse])
@@ -1347,13 +1422,19 @@ async def delete_example(
     await db.execute("UPDATE jobs SET stats_json = NULL WHERE id = ?", (job_id,))
     await db.commit()
 
-    # Keep JSONL file in sync with DB state
+    # Keep JSONL file(s) in sync with DB state
     jsonl_path = settings.datasets_dir / f"{job_id}.jsonl"
+    metadata_path = settings.datasets_dir / f"{job_id}_with_metadata.jsonl"
     async with await db.execute(
         "SELECT COUNT(*) AS n FROM examples WHERE job_id = ?", (job_id,)
     ) as cur:
         remaining = (await cur.fetchone())["n"]
     if remaining == 0:
         jsonl_path.unlink(missing_ok=True)
+        metadata_path.unlink(missing_ok=True)
     else:
         await export_job(job_id, db)
+        # Drop the metadata flavour — user can regenerate via POST /add-metadata
+        # to pick up the deletion. Cheaper than recomputing it on every
+        # single-row delete (no LLM calls, but still a full table scan).
+        metadata_path.unlink(missing_ok=True)
