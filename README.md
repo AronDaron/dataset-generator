@@ -158,8 +158,8 @@ Pre-built binaries are on the [Releases](../../releases) page — no Python, no 
 | Platform | File | Size | Usage |
 |---|---|---|---|
 | Windows 10/11 (x64) | `DatasetGenerator-windows-x64.zip` | ~100 MB | Extract → double-click `DatasetGenerator.exe` |
-| Linux (AppImage) | `DatasetGenerator-x86_64.AppImage` | ~140 MB | `chmod +x` → double-click |
-| Linux (tar.gz) | `DatasetGenerator-linux-x64.tar.gz` | ~140 MB | Extract → run `./DatasetGenerator` |
+
+> **Linux:** pre-built Linux binaries are no longer published — v1.0.4-Beta was the last release with an AppImage and a tar.gz. The code is still cross-platform and the build scripts stay in the repo, so you can build it yourself (see below). Those builds are not tested anymore: they should work, but it's as-is, no guarantees.
 
 <details>
 <summary><b>Windows — SmartScreen warning</b></summary>
@@ -168,32 +168,23 @@ Unsigned executable: on first run click **More info** → **Run anyway**. App da
 </details>
 
 <details>
-<summary><b>Linux AppImage — FUSE on Ubuntu 24.04</b></summary>
+<summary><b>Linux — build it yourself (untested)</b></summary>
 
+From the repo root (build prerequisites are listed at the top of `scripts/build_linux.sh`):
 ```bash
-chmod +x DatasetGenerator-x86_64.AppImage
-./DatasetGenerator-x86_64.AppImage
+./scripts/build_linux.sh      # → DatasetGenerator-linux-x64.tar.gz
+./scripts/build_appimage.sh   # optional, needs appimagetool → DatasetGenerator-x86_64.AppImage
 ```
 
-If `dlopen(): error loading libfuse.so.2` appears:
+Running the build requires GTK 3 and WebKit2GTK 4.1 (pre-installed on Ubuntu 24.04+, Fedora 38+). On older systems:
+```bash
+sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0
+```
+
+If the AppImage fails with `dlopen(): error loading libfuse.so.2`:
 ```bash
 sudo apt install libfuse2t64   # Ubuntu 24.04+
 sudo apt install libfuse2      # Ubuntu 22.04 and older
-```
-</details>
-
-<details>
-<summary><b>Linux tar.gz — GTK/WebKit requirements</b></summary>
-
-```bash
-tar -xzf DatasetGenerator-linux-x64.tar.gz
-cd DatasetGenerator
-./DatasetGenerator
-```
-
-Requires GTK 3 and WebKit2GTK 4.1 (pre-installed on Ubuntu 24.04+, Fedora 38+). On older systems:
-```bash
-sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0
 ```
 </details>
 
@@ -229,8 +220,8 @@ Backend on `http://localhost:8000`, frontend on `http://localhost:3000`. Open Se
 
 ## FAQ
 
-**Is Linux fully supported?**
-Yes — the app ships AppImage and tar.gz builds and all features work cross-platform. That said, day-to-day development and manual testing happens on Windows; Linux builds are verified with automated smoke tests but don't get the same amount of hands-on time. If something feels off on Linux, please open an Issue — I'll take a look.
+**Is Linux supported?**
+Not as a release target anymore. From v1.0.4 on, releases ship Windows only and Linux builds are no longer tested. The code is still cross-platform and `scripts/build_linux.sh` / `scripts/build_appimage.sh` stay in the repo, so you can build it yourself (see [Download](#download)) — it should work, but it's as-is, no guarantees. Issues and PRs are welcome.
 
 **How much does it cost to generate 1000 examples?**
 Depends on model choice, turn count, and judge strictness. With open-source models available on OpenRouter (Llama 3.x, Qwen 2.5, DeepSeek, Mistral) expect single-digit dollars per 1000 multi-turn examples. Note that the UI shows the cost of accepted examples only — real spend includes rejected and skipped examples plus retries, typically 1.5-2x the displayed cost depending on judge threshold.
