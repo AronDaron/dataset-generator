@@ -28,6 +28,7 @@ from app.services.llm.base import (
     ModelInfo,
     Pricing,
     ProviderCapabilities,
+    message_reasoning,
 )
 from app.services.token_counter import count_tokens
 
@@ -37,7 +38,16 @@ REQUEST_TIMEOUT: Final = 480.0
 EMBEDDING_TIMEOUT: Final = 60.0
 EMBEDDING_BATCH_SIZE: Final = 100
 HEALTH_TIMEOUT: Final = 5.0
+STATUS_TIMEOUT: Final = 5.0
 RETRYABLE_CODES: Final = {429, 500, 502, 503, 504}
+
+# Reasoning-effort support is discovered per endpoint, not assumed per model:
+# Unsloth Studio publishes `reasoning_effort_levels` on /v1/status, plain Ollama
+# and llama.cpp have no such endpoint. Cached by base_url because the answer is
+# a property of the server build, and providers are constructed per request.
+# Value is the advertised level list; [] means "endpoint said nothing — send no
+# reasoning_effort", which keeps unknown backends byte-identical to before.
+_EFFORT_LEVELS_CACHE: dict[str, list[str]] = {}
 
 OPENAI_COMPAT_CAPABILITIES: Final = ProviderCapabilities(
     supports_provider_routing=False,
@@ -52,9 +62,14 @@ OPENAI_COMPAT_CAPABILITIES: Final = ProviderCapabilities(
     requires_api_key=False,
     has_pricing=False,
     supports_embeddings=True,
-    # Local single-GPU backends — parallel calls fight for the same VRAM and
-    # routinely OOM 14B+ models. Reasoning fan-out serializes calls here.
-    supports_parallel=False,
+    # Local backends that serve several requests at once (llama.cpp-style
+    # `parallel_slots`, Unsloth Studio) handle the fan-out fine: measured on a
+    # 3700-example dataset the heaviest single cleanup call is ~9.8k tokens
+    # against a 65k per-slot budget, i.e. 15%. The old default serialized every
+    # gated stage behind one lock, which is only right for a small single-GPU
+    # box with no slot splitting — that case belongs in a per-provider setting,
+    # not in a class constant. TODO: expose as a provider field in Settings.
+    supports_parallel=True,
 )
 
 
@@ -88,18 +103,44 @@ class OpenAICompatProvider(LLMProvider):
         messages: list[dict[str, str]],
         *,
         temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_tokens: int | None = 2048,
         max_retries: int = 3,
         retry_cooldown: int = 15,
         provider_route: str | None = None,
+        reasoning_effort: str | None = None,
+        disable_thinking: bool = False,
     ) -> ChatResult:
         # provider_route silently ignored — routing is OpenRouter-specific.
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
         }
+        if max_tokens is not None:
+            # None = no ceiling: the field is omitted and the backend generates
+            # until EOS. Used by passes whose output size the prompt already
+            # bounds (reasoning), where a thinking model's thought channel
+            # would otherwise eat any cap we could pick.
+            payload["max_tokens"] = max_tokens
+        if disable_thinking:
+            # Two spellings because backends disagree: `chat_template_kwargs` is
+            # the vLLM/Qwen convention, the top-level flag is what several
+            # llama.cpp-based servers read. Both verified against Unsloth Studio;
+            # a backend that knows neither ignores unknown JSON fields.
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+            payload["enable_thinking"] = False
+        if reasoning_effort:
+            # Only forward a level the endpoint itself advertises for THIS model.
+            # Sending an unknown field to a backend that validates its request
+            # body would turn a working setup into a hard 400.
+            levels = await self.supported_reasoning_efforts(model)
+            if reasoning_effort in levels:
+                payload["reasoning_effort"] = reasoning_effort
+            else:
+                logger.debug(
+                    "[%s] reasoning_effort=%s not advertised (levels=%s) — omitted",
+                    self.base_url, reasoning_effort, levels or "none",
+                )
         last_error: LLMError | None = None
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             for attempt in range(max_retries):
@@ -209,6 +250,64 @@ class OpenAICompatProvider(LLMProvider):
             embeddings.append(single)
         return embeddings
 
+    async def supported_reasoning_efforts(self, model: str | None = None) -> list[str]:
+        """Ask the endpoint which reasoning-effort levels it accepts for `model`.
+
+        Unsloth Studio answers /v1/status with `supports_reasoning` plus
+        `reasoning_effort_levels`. Ollama and llama.cpp have no such route, so
+        the 404 (or connection error) resolves to [] and nothing changes for
+        them. Cached per (endpoint, model) — one probe per model per process,
+        not one per generated example.
+
+        The reply describes the *currently loaded* model, and Unsloth holds one
+        at a time. So an answer collected while a different model was resident
+        says nothing about this one: swapping a reasoning model for a plain one
+        would otherwise keep sending it a reasoning_effort it never advertised.
+        """
+        cache_key = (self.base_url, model or "")
+        cached = _EFFORT_LEVELS_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        levels: list[str] = []
+        endpoint_answered = False
+        describes_this_model = True
+        try:
+            async with httpx.AsyncClient(timeout=STATUS_TIMEOUT) as client:
+                r = await client.get(f"{self.base_url}/status", headers=self._headers())
+            if r.status_code == 200:
+                endpoint_answered = True
+                data = r.json() if isinstance(r.json(), dict) else {}
+                active = data.get("active_model")
+                if model and active and str(active) != model:
+                    # Answer is about some other model — don't trust it, don't
+                    # store it. The model we want loads on the first chat call,
+                    # and the next probe describes it correctly.
+                    describes_this_model = False
+                    logger.debug(
+                        "[%s] /status describes %s, not %s — skipping effort probe",
+                        self.base_url, active, model,
+                    )
+                elif data.get("supports_reasoning"):
+                    levels = [
+                        str(lvl) for lvl in (data.get("reasoning_effort_levels") or [])
+                    ]
+        except (httpx.HTTPError, ValueError):
+            pass  # no capability endpoint — treat as unsupported
+
+        # Cache a "no" only when the endpoint is genuinely absent. Unsloth
+        # reports no reasoning support while no model is loaded (it idle-unloads,
+        # and the model loads on the first chat call), so caching that answer
+        # would disable effort control for an entire run that started cold.
+        if describes_this_model and (levels or not endpoint_answered):
+            _EFFORT_LEVELS_CACHE[cache_key] = levels
+        if levels:
+            logger.info(
+                "[%s] model %s advertises reasoning_effort levels: %s",
+                self.base_url, model or "?", levels,
+            )
+        return levels
+
     async def health_check(self) -> bool:
         try:
             async with httpx.AsyncClient(timeout=HEALTH_TIMEOUT) as client:
@@ -259,14 +358,27 @@ def _normalise_chat_response(raw: dict[str, Any]) -> ChatResult:
         # in `content`. Strip and recount.
         kept = _THINK_RE.sub("", content).strip()
         raw["usage"]["completion_tokens"] = count_tokens(kept)
-    elif msg.get("reasoning") and content:
-        # Format B — Qwen3-style separate `message.reasoning` field with the
-        # kept response in `content`. Ollama bills usage.completion_tokens as
-        # (reasoning + content) without breaking out the split, so DB and
-        # cost/Quality-Report values would over-report by ~10×. Recount on
-        # the kept content alone so the numbers match reality.
+    elif message_reasoning(msg) and content and not _reasoning_tokens_reported(raw):
+        # Format B — Qwen3-style separate reasoning field with the kept response
+        # in `content` (`reasoning` on Ollama, `reasoning_content` on LM Studio
+        # and Unsloth Studio). These backends bill usage.completion_tokens as
+        # (reasoning + content) without breaking out the split — Unsloth even
+        # reports reasoning_tokens: 0 alongside a 30k-character think block — so
+        # DB and cost/Quality-Report values would over-report by ~10×, and a
+        # short answer could trip the budget check. Recount on the kept content
+        # alone so the numbers match reality.
+        #
+        # Skipped when the backend DID break out reasoning_tokens (LM Studio):
+        # job_runner._extract_usage already subtracts that figure, and recounting
+        # here as well would subtract the thinking twice and floor tokens at 0.
         raw["usage"]["completion_tokens"] = count_tokens(content)
     return raw
+
+
+def _reasoning_tokens_reported(raw: dict[str, Any]) -> int:
+    """Reasoning tokens the backend itself broke out (0 when it didn't)."""
+    usage = raw.get("usage") or {}
+    return (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0) or 0
 
 
 def _to_model_info(raw: dict[str, Any]) -> ModelInfo:

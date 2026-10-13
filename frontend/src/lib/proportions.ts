@@ -12,6 +12,8 @@ export interface Category {
   provider?: string    // per-category provider override (undefined = auto)
   judgeModel?: string  // per-category judge model override (undefined = use global judge)
   judgeProvider?: string // per-category judge provider override (undefined = use global judge provider)
+  cleanupModel?: string    // per-category cleanup model override (undefined = use global cleanup)
+  cleanupProvider?: string // per-category cleanup provider override (undefined = use global cleanup provider)
 }
 
 // Distribute `total` across `n` slots as evenly as possible using integers.

@@ -23,6 +23,10 @@ export const STAGE_LABELS: Record<string, string> = {
   reasoning_generating:     'Generating reasoning',
   reasoning_exporting:      'Writing JSONL',
   reasoning_computing_stats: 'Computing statistics',
+  cleanup_copying:           'Copying source examples',
+  cleanup_processing:        'Cleaning examples',
+  cleanup_exporting:         'Writing JSONL',
+  cleanup_computing_stats:   'Computing statistics',
 }
 
 export interface StatusTone {

@@ -1,6 +1,30 @@
 from __future__ import annotations
 
-from typing import Literal
+import json
+from typing import TYPE_CHECKING, Any, Literal, Sequence
+
+from app.services.token_counter import count_tokens
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    # Import guarded so this module stays free of runtime service imports:
+    # `app.models.jobs` pulls DEFAULT_CLEANUP_RULES from here, and a runtime
+    # edge to cleanup_service would drag the whole services layer into the
+    # model layer. `TextSlot` is only ever read (index/role/text).
+    from app.services.cleanup_service import TextSlot
+
+# Default rules injected into the cleanup prompt when the user leaves the
+# field empty. One rule per line — the cleanup model reads them verbatim, so
+# every line must describe something to DELETE or minimally reformat, never
+# something to rewrite. Encodes the format defects measured on generated
+# datasets (LaTeX, unclosed fences, emoji, sycophantic openers, trailing
+# offers, meta-commentary).
+DEFAULT_CLEANUP_RULES = """\
+Remove LaTeX math delimiters ($, $$, \\( \\), \\[ \\]) and LaTeX macros — write math as plain text.
+Close every unclosed code fence; remove stray or duplicated ``` markers.
+Remove all emoji and decorative unicode symbols.
+Remove flattering openers ("Great question!", "Certainly!", "Thanks for the context") — start with the substance.
+Remove trailing offers of further help ("Let me know if…", "Would you like…", "Hope this helps!").
+Remove meta-commentary about the prompt, the constraints, or the example itself."""
 
 
 def build_topic_generation_prompt(
@@ -198,3 +222,182 @@ def _format_instructions(fmt: Literal["sharegpt", "alpaca", "chatml"], turns: in
     )
 
 
+# ---------------------------------------------------------------------------
+# Cleanup stage
+# ---------------------------------------------------------------------------
+
+# max_tokens for a cleanup call is derived from the payload, not from the job
+# config: the task is delete-only, so the output is at most about as long as
+# the input. Since cleanup runs one slot per request, the payload is a single
+# text — the budget scales down with it on its own. The ratio leaves room for
+# tokenizer drift, the headroom for a reasoning block before the answer.
+CLEANUP_TOKEN_RATIO = 2.0
+CLEANUP_TOKEN_HEADROOM = 2048
+CLEANUP_MIN_TOKENS = 2048
+
+_FORMAT_LABELS: dict[str, str] = {
+    "sharegpt": "ShareGPT",
+    "alpaca": "Alpaca",
+    "chatml": "ChatML",
+}
+
+
+def build_cleanup_prompt(
+    slots: Sequence["TextSlot"],
+    cleanup_rules: str,
+    fmt: Literal["sharegpt", "alpaca", "chatml"],
+    full_example: dict[str, Any],
+) -> list[dict[str, str]]:
+    """LEGACY batch variant: N texts in, one JSON array of N cleaned texts out.
+
+    Superseded by ``build_cleanup_slot_prompt``, which asks for one text per
+    request and takes JSON out of the loop entirely. Measured on gemma-4-E4B,
+    this prompt breaks down on long examples: the model has to keep a single
+    JSON array of several long strings — code, quotes, escaped newlines —
+    syntactically intact, and a 4-slot ShareGPT example produced 8871 valid
+    characters and then closed the array as `"}]`, with ``finish_reason:
+    stop``. It is not truncation, so a larger budget does not help; the longer
+    the example, the likelier the corruption. Kept for compatibility and for
+    the tests that pin the old contract — not used by the pipeline.
+
+    The model never sees the example's structure as something it may edit —
+    it gets a flat, numbered list of texts and must return a JSON array of the
+    same length in the same order. `full_example` is passed as read-only
+    context so the model can tell a user turn from an assistant turn and keep
+    references between turns intact.
+
+    `cleanup_rules` is injected verbatim (one rule per line) — it is the only
+    user-authored part of the prompt and defines what counts as a defect.
+    """
+    n = len(slots)
+    format_label = _FORMAT_LABELS.get(fmt, fmt)
+    rules = cleanup_rules.strip() or DEFAULT_CLEANUP_RULES
+
+    system = (
+        "You are a format normalizer, not an editor.\n\n"
+        "You do NOT rewrite, rephrase, translate, summarize, expand, improve, or answer "
+        "anything. You only DELETE offending fragments or minimally reformat them.\n"
+        "Preserve every code block byte-for-byte. The only permitted change to code is "
+        "closing an unclosed fence.\n"
+        "Preserve all facts, numbers, identifiers, ordering and paragraph structure.\n"
+        "Preserve the original language of every text.\n"
+        "If a text already conforms to the rules, return it verbatim, character for "
+        "character.\n\n"
+        f"Rules:\n{rules}\n\n"
+        "Output contract:\n"
+        f"- Return ONLY a JSON array of exactly {n} strings — no markdown fences, no "
+        "commentary, no object wrapper.\n"
+        f"- Entry i of the array is the cleaned version of input text [i], for all "
+        f"{n} texts, in the same order.\n"
+        "- Never merge, split, drop or reorder entries; an empty string is never a "
+        "valid entry.\n"
+        '- Format: ["cleaned text 1", "cleaned text 2", ...]'
+    )
+
+    numbered = "\n\n".join(
+        f"[{slot.index}] ({slot.role or 'text'}):\n{slot.text}" for slot in slots
+    )
+    user = (
+        f"Output format of this example: {format_label}.\n\n"
+        "Full example, for context only — do NOT return it:\n"
+        f"{json.dumps(full_example, ensure_ascii=False)}\n\n"
+        f"Texts to clean ({n} in total):\n\n"
+        f"{numbered}\n\n"
+        f"Return a JSON array of exactly {n} cleaned string(s), in the same order as "
+        "the numbered texts above. Output the JSON array now:"
+    )
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+# Markers around the single text handed to the model. Explicit boundaries keep
+# a text that itself ends in a code fence or a quote from bleeding into the
+# instructions, and give the model an unambiguous answer to "where does the
+# text I must return start?".
+CLEANUP_TEXT_START = "--- TEXT START ---"
+CLEANUP_TEXT_END = "--- TEXT END ---"
+
+
+def build_cleanup_slot_prompt(
+    slot: "TextSlot",
+    cleanup_rules: str,
+    fmt: Literal["sharegpt", "alpaca", "chatml"],
+    full_example: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Build the cleanup-stage prompt for ONE text: text in, plain text out.
+
+    The reply *is* the result — no JSON array, no quoting, no escaping — so
+    there is nothing left for the model to corrupt structurally. Everything
+    the batch variant got wrong on long examples (see ``build_cleanup_prompt``)
+    disappears with the array; the caller only has to strip the wrappers a
+    chatty model may add (``cleanup_service.clean_slot_response``).
+
+    `full_example` is still passed as read-only context so the model can tell
+    a user turn from an assistant turn and keep references between turns
+    intact; `slot` marks which of those texts it must actually return.
+
+    `cleanup_rules` is injected verbatim (one rule per line) — it is the only
+    user-authored part of the prompt and defines what counts as a defect.
+    """
+    format_label = _FORMAT_LABELS.get(fmt, fmt)
+    rules = cleanup_rules.strip() or DEFAULT_CLEANUP_RULES
+    role = slot.role or "text"
+
+    system = (
+        "You are a format normalizer, not an editor.\n\n"
+        "You do NOT rewrite, rephrase, translate, summarize, expand, improve, or answer "
+        "anything. You only DELETE offending fragments or minimally reformat them.\n"
+        "Preserve every code block byte-for-byte. The only permitted change to code is "
+        "closing an unclosed fence.\n"
+        "Preserve all facts, numbers, identifiers, ordering and paragraph structure.\n"
+        "Preserve the original language of the text.\n\n"
+        f"Rules:\n{rules}\n\n"
+        "Output contract:\n"
+        "- Return ONLY the cleaned text. No JSON, no quotes around it, no markdown "
+        "fence, no commentary, no preamble.\n"
+        "- Your entire answer is used as the text, character for character.\n"
+        "- Return exactly one text: the one marked below, never the other texts of "
+        "the example and never its JSON structure.\n"
+        "- If the text already conforms, return it verbatim, character for character."
+    )
+
+    user = (
+        f"Output format of this example: {format_label}.\n\n"
+        "Full example, for context only — do NOT return it:\n"
+        f"{json.dumps(full_example, ensure_ascii=False)}\n\n"
+        f"Clean the {role} text below (text {slot.index} of the example). It is "
+        "everything between the two marker lines; the markers themselves are not "
+        "part of it.\n"
+        f"{CLEANUP_TEXT_START}\n"
+        f"{slot.text}\n"
+        f"{CLEANUP_TEXT_END}\n\n"
+        "Output the cleaned text now, as plain text:"
+    )
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+def cleanup_max_tokens(slot_text: str, config_max_tokens: int) -> int:
+    """Token budget for one cleanup call, derived from the payload.
+
+    ``max(count_tokens(joined) * 2 + 2048, 2048)`` — deliberately generous and
+    **not** capped by the job's own `max_tokens`.
+
+    Two reasons. First, a reasoning model spends the same completion budget on
+    its thinking block as on the answer; measured on gemma-4-E4B a ~110-token
+    reply came with ~314 tokens of reasoning, and Unsloth reports
+    ``reasoning_tokens: 0`` so the cost is invisible in usage. A tight budget
+    truncates the answer and the slot is reverted for nothing. Second, this
+    budget has nothing to guard: cleanup only echoes back text that already
+    exists, and over-long examples are rejected earlier, at generation time.
+
+    ``slot_text`` is the text of a *single* slot — one call cleans one text.
+    """
+    return max(
+        int(count_tokens(slot_text) * CLEANUP_TOKEN_RATIO) + CLEANUP_TOKEN_HEADROOM,
+        CLEANUP_MIN_TOKENS,
+    )

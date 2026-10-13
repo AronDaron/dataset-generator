@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Final
 
 import numpy as np
 
@@ -17,6 +17,22 @@ import numpy as np
 # Canonical chat response shape — mirrors OpenAI/OpenRouter so downstream
 # parsing helpers in job_runner don't need provider-specific branches.
 ChatResult = dict[str, Any]
+
+# Field names carrying the model's thinking. Ollama emits `reasoning`; LM Studio,
+# Unsloth Studio, vLLM and SGLang emit `reasoning_content`. Every read of a
+# message's thinking must accept both — checking only one name makes half the
+# local backends look like non-reasoning models, which silently disables the
+# starvation handling and the token recount that depend on that signal.
+REASONING_FIELDS: Final = ("reasoning", "reasoning_content")
+
+
+def message_reasoning(message: dict[str, Any] | None) -> str:
+    """Return a chat message's reasoning text, whatever the backend names it."""
+    for name in REASONING_FIELDS:
+        value = (message or {}).get(name)
+        if value:
+            return str(value)
+    return ""
 
 
 @dataclass(frozen=True)
@@ -108,16 +124,46 @@ class LLMProvider(ABC):
         messages: list[dict[str, str]],
         *,
         temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_tokens: int | None = 2048,
         max_retries: int = 3,
         retry_cooldown: int = 15,
         provider_route: str | None = None,
+        reasoning_effort: str | None = None,
+        disable_thinking: bool = False,
     ) -> ChatResult:
         """Send a chat completion request. Returns OpenAI-shaped response dict.
 
         `provider_route` is only honoured when `capabilities.supports_provider_routing`
         is True (OpenRouter "DeepSeek" etc.); silently ignored otherwise.
+
+        `max_tokens=None` sends no ceiling at all — the backend generates until
+        EOS. Callers use it when the prompt already bounds the output.
+
+        `reasoning_effort` is only honoured when the backend advertises the level
+        via `supported_reasoning_efforts()`; silently ignored otherwise.
+
+        `disable_thinking` asks a reasoning-capable backend to skip its thinking
+        block for this one call. Purely mechanical tasks (cleanup) gain nothing
+        from deliberation and lose a lot: measured on gemma-4-26B-A4B a single
+        cleanup slot spent 3622 tokens on 15k characters of reasoning and
+        returned an EMPTY answer, versus 881 tokens and a correct answer with
+        thinking off — 78.7s down to 16.3s. Backends that do not understand the
+        hint ignore the extra field.
         """
+
+    async def supported_reasoning_efforts(self, model: str | None = None) -> list[str]:
+        """Reasoning effort levels this backend advertises for `model`.
+
+        Empty list means "don't send reasoning_effort at all" — the safe default
+        for every provider that doesn't publish a capability endpoint. Callers use
+        a non-empty result to decide whether trimming the thinking budget is an
+        option, or whether they must fall back to raising max_tokens instead.
+
+        `model` matters because a single-model server answers for whatever it has
+        loaded right now: a reasoning model's answer says nothing about the
+        non-reasoning one you are about to swap in.
+        """
+        return []
 
     @abstractmethod
     async def list_models(self) -> list[ModelInfo]:

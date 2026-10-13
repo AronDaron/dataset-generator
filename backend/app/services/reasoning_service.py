@@ -37,6 +37,7 @@ from app.services.example_schema import (
     strip_to_schema,
 )
 from app.services.job_runner import (
+    REASONING_EFFORT_DEFAULT,
     _CancelledError,
     _job_tasks,
     _running_jobs,
@@ -45,6 +46,7 @@ from app.services.job_runner import (
     is_cancelled,
 )
 from app.services.llm.base import LLMError, LLMProvider
+from app.services.llm.concurrency import provider_gate
 from app.services.llm.registry import (
     ProviderDisabledError,
     ProviderNotFoundError,
@@ -63,23 +65,34 @@ _REASONING_COPY_BATCH = 1000
 _REASONING_INSERT_SQL = (
     "INSERT INTO examples "
     "(id, job_id, content_json, format, tokens, judge_score, category, model, "
-    "prompt_tokens, completion_tokens, judge_prompt_tokens, judge_completion_tokens) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "prompt_tokens, completion_tokens, judge_prompt_tokens, judge_completion_tokens, "
+    "cleanup_prompt_tokens, cleanup_completion_tokens) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 
 _UPDATE_REASONING_SQL = (
     "UPDATE examples SET reasoning = ?, reasoning_model_used = ? WHERE id = ?"
 )
 
-# Per-provider lock for backends that can't serve parallel chats (Ollama,
-# LM Studio — single GPU contention). Different local providers each get
-# their own lock so a user with two distinct local backends still benefits
-# from inter-provider parallelism.
-_local_provider_locks: dict[str, asyncio.Lock] = {}
+# Bound on in-flight reasoning calls across the process. Categories run as
+# parallel tasks, so with 7 categories this is what actually decides how
+# many requests hit a single local GPU at once — kept equal to the cleanup
+# stage's 4, the level measured to hold on Unsloth Studio.
+_REASONING_GEN_SEMAPHORE = asyncio.Semaphore(4)
 
-# Reuse the existing generation semaphore to bound total in-flight provider
-# calls across the process (gen + reasoning together).
-_REASONING_GEN_SEMAPHORE = asyncio.Semaphore(10)
+# Runaway guard, not a budget. A thinking model spends an amount of tokens on
+# its thought channel that depends on the model, the effort level and the
+# example — measured on gemma-4-26B-A4B for a 3-turn example: ~6 000 tokens
+# of thinking before 1 300 characters of prose — so any cap derived from the
+# prose size (the old ``max_tokens * turns // 2 + 256``) starved it with
+# ``finish_reason=length`` and empty content on every attempt. With no cap at
+# all, though, a model that falls into a repetition loop keeps generating
+# server-side until the context is full (one example on the 6600 run sat at
+# >4 000 s on Unsloth while the client had long timed out and retried on
+# top of it). 32k is ~5× the measured need and exists only to end that
+# loop; the prose itself is bounded by the prompt and by
+# ``_parse_and_validate_prose_list``.
+REASONING_RUNAWAY_TOKEN_GUARD = 32_768
 
 
 # ---------------------------------------------------------------------------
@@ -88,8 +101,13 @@ _REASONING_GEN_SEMAPHORE = asyncio.Semaphore(10)
 
 _THINK_RE = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
 _CODE_FENCE_RE = re.compile(r"```")
+# Floor only. A block under 20 tokens is not a thought process ("I answer the
+# question.") — it is the one shape the prompt cannot be trusted to prevent.
+# There is deliberately no ceiling: how much a model reasons before a given
+# answer is the model's business, some questions need more, and the prompt
+# already anchors the length; a cap would only throw away the long traces
+# that natively verbose thinkers produce.
 _MIN_REASONING_TOKENS = 20
-_MAX_REASONING_TOKENS = 400
 
 
 def _validate_single_prose(cleaned: str) -> str | None:
@@ -108,8 +126,6 @@ def _validate_single_prose(cleaned: str) -> str | None:
     tokens = count_tokens(cleaned)
     if tokens < _MIN_REASONING_TOKENS:
         return f"too_short ({tokens} tokens)"
-    if tokens > _MAX_REASONING_TOKENS:
-        return f"too_long ({tokens} tokens)"
     return None
 
 
@@ -257,7 +273,7 @@ def _build_reasoning_messages(
         system = (
             "Read the dialog. For each response you gave, write the thought "
             "process that led to it. First-person (\"I\", \"my\"), present "
-            "tense, plain prose, 50-200 tokens. No JSON, no markdown, no "
+            "tense, plain prose. No JSON, no markdown, no "
             "headers, no quotes around the prose. Just the thinking.\n\n"
             f"{closing_rule}"
         )
@@ -280,7 +296,7 @@ def _build_reasoning_messages(
         system = (
             "Read the dialog. For each response you gave, write the thought "
             "process that led to it. First-person (\"I\", \"my\"), present "
-            "tense, plain prose, 50-200 tokens per block. No JSON, no "
+            "tense, plain prose. No JSON, no "
             "markdown, no other text — just the thinking, separated by the "
             "exact headers shown by the user.\n\n"
             f"{closing_rule}"
@@ -318,11 +334,12 @@ async def _call_provider(
     messages: list[dict[str, str]],
     *,
     temperature: float,
-    max_tokens: int,
+    max_tokens: int | None,
     provider_route: str | None = None,
 ) -> dict | None:
     """Single chat call. For non-parallel providers (Ollama/LM Studio) calls go
-    through the per-provider lock so the GPU only sees one chat at a time.
+    through the shared per-provider gate (``llm.concurrency.provider_gate``)
+    so the GPU only sees one chat at a time, no matter which stage issues it.
 
     ``provider_route`` pins an OpenRouter upstream (e.g. "Anthropic") so a
     reasoning pass on `anthropic/claude-3-haiku` goes through Anthropic
@@ -330,6 +347,13 @@ async def _call_provider(
     `capabilities.supports_provider_routing` is True; OpenAI-compatible local
     backends ignore it transparently in `provider.chat`.
     """
+    # Keep the thinking bounded where the backend offers effort levels;
+    # resolves to None everywhere else.
+    effort_levels = await provider.supported_reasoning_efforts(model)
+    reasoning_effort = (
+        REASONING_EFFORT_DEFAULT if REASONING_EFFORT_DEFAULT in effort_levels else None
+    )
+
     async def _do_call() -> dict | None:
         try:
             async with _REASONING_GEN_SEMAPHORE:
@@ -341,16 +365,16 @@ async def _call_provider(
                     max_retries=1,
                     retry_cooldown=15,
                     provider_route=provider_route,
+                    reasoning_effort=reasoning_effort,
                 )
         except LLMError as exc:
             logger.warning("[reasoning] provider error: %s", exc)
             return None
 
-    if not provider.capabilities.supports_parallel and provider.provider_id:
-        lock = _local_provider_locks.setdefault(provider.provider_id, asyncio.Lock())
-        async with lock:
-            return await _do_call()
-    return await _do_call()
+    # Non-parallel backends (Ollama, LM Studio) are serialized by the shared
+    # gate; for everything else this is a no-op.
+    async with provider_gate(provider):
+        return await _do_call()
 
 
 async def _generate_reasoning_for_example(
@@ -360,7 +384,7 @@ async def _generate_reasoning_for_example(
     provider: LLMProvider,
     model: str,
     temperature: float,
-    max_tokens: int,
+    max_tokens: int | None,
     job_id: str,
     category: str,
     provider_route: str | None = None,
@@ -390,17 +414,13 @@ async def _generate_reasoning_for_example(
 
     messages = _build_reasoning_messages(content_json, fmt, expected_n)
 
-    # Reasoning model needs more budget when it has to produce multiple
-    # rationales — scale max_tokens with turn count so 4-turn datasets don't
-    # silently truncate the JSON array.
-    effective_max = max(max_tokens, max_tokens * expected_n // 2 + 256)
-
     for attempt in range(max_attempts):
         if is_cancelled(job_id):
             raise _CancelledError()
         response = await _call_provider(
             provider, model, messages,
-            temperature=temperature, max_tokens=effective_max,
+            temperature=temperature,
+            max_tokens=max_tokens if max_tokens is not None else REASONING_RUNAWAY_TOKEN_GUARD,
             provider_route=provider_route,
         )
         if response is None:
@@ -449,7 +469,7 @@ async def spawn_reasoning_job(
             status_code=409,
             detail=f"Source job is {source_row['status']}, must be completed",
         )
-    if source_row["parent_job_id"] is not None or source_row["reasoning_format"] is not None:
+    if source_row["reasoning_format"] is not None:
         raise HTTPException(
             status_code=409,
             detail="Source is already a reasoning job — chaining is not supported",
@@ -522,8 +542,12 @@ async def spawn_reasoning_job(
     # endpoints render category names, plus reasoning-specific metadata.
     reasoning_config = dict(source_config)
     reasoning_config["total_examples"] = max(total_count, 10)
-    # Strip merge marker so the reasoning job isn't mistaken for a merge.
+    # Strip merge marker so the reasoning job isn't mistaken for a merge, and
+    # the cleanup-pass marker so a reasoning job built on a cleaned dataset
+    # isn't mistaken for a cleanup pass (its own parent_job_id already records
+    # the lineage).
     reasoning_config.pop("merged_from", None)
+    reasoning_config.pop("cleanup_post_from", None)
 
     reasoning_category_models = {
         cat.name: {
@@ -631,25 +655,56 @@ async def _reasoning_job_task(
         )
 
         # --- Stage 1: copy examples from source ---
-        progress.current_stage = "reasoning_copying"
-        await _update_progress(db, reasoning_job_id, "running", progress)
+        # A resumed job that already holds the full copy skips this stage —
+        # copying again would double every example (the generation loop then
+        # happily works through the duplicates too). `resume_reasoning_job`
+        # wipes a *partial* copy before handing over, so "already complete"
+        # is the only non-empty state that can reach this point.
+        async with await db.execute(
+            "SELECT COUNT(*) AS n FROM examples WHERE job_id = ?", (reasoning_job_id,)
+        ) as cur:
+            already_copied = int((await cur.fetchone())["n"])
 
-        copied = await _copy_examples_from_source(
-            db, source_job_id, reasoning_job_id, progress,
-            reasoning_job_id_for_cancel=reasoning_job_id,
-        )
-        if copied != total_count:
-            logger.warning(
-                "Reasoning job %s: copied %d/%d examples (source mutated mid-copy?)",
-                reasoning_job_id, copied, total_count,
+        if already_copied >= total_count and total_count > 0:
+            logger.info(
+                "Reasoning job %s: %d/%d examples already copied — skipping copy stage",
+                reasoning_job_id, already_copied, total_count,
             )
+        else:
+            progress.current_stage = "reasoning_copying"
+            await _update_progress(db, reasoning_job_id, "running", progress)
+
+            copied = await _copy_examples_from_source(
+                db, source_job_id, reasoning_job_id, progress,
+                reasoning_job_id_for_cancel=reasoning_job_id,
+            )
+            if copied != total_count:
+                logger.warning(
+                    "Reasoning job %s: copied %d/%d examples (source mutated mid-copy?)",
+                    reasoning_job_id, copied, total_count,
+                )
 
         # --- Stage 2: generate reasoning per category ---
+        # Seed the counters from what is already in the DB so a resume
+        # reports "1152/6600" rather than restarting the bar from zero.
+        # Skips are not persisted (a skipped row is just NULL again), so
+        # they restart at 0 and such rows get another go.
         progress.current_stage = "reasoning_generating"
         progress.completed = 0
+        progress.skipped = 0
         for cp in progress.categories.values():
             cp.completed = 0
             cp.skipped = 0
+        async with await db.execute(
+            "SELECT category, COUNT(*) AS n FROM examples "
+            "WHERE job_id = ? AND reasoning IS NOT NULL GROUP BY category",
+            (reasoning_job_id,),
+        ) as cur:
+            for done_row in await cur.fetchall():
+                progress.completed += int(done_row["n"])
+                cp = progress.categories.get(done_row["category"])
+                if cp is not None:
+                    cp.completed = int(done_row["n"])
         await _update_progress(db, reasoning_job_id, "running", progress)
 
         # Resolve providers up front — one lookup per category.
@@ -749,7 +804,8 @@ async def _copy_examples_from_source(
     select_sql = (
         "SELECT content_json, format, tokens, judge_score, category, model, "
         "       prompt_tokens, completion_tokens, "
-        "       judge_prompt_tokens, judge_completion_tokens "
+        "       judge_prompt_tokens, judge_completion_tokens, "
+        "       cleanup_prompt_tokens, cleanup_completion_tokens "
         "FROM examples WHERE job_id = ? ORDER BY created_at ASC"
     )
     buffer: list[tuple] = []
@@ -787,6 +843,8 @@ async def _copy_examples_from_source(
                 row["completion_tokens"] or 0,
                 row["judge_prompt_tokens"] or 0,
                 row["judge_completion_tokens"] or 0,
+                row["cleanup_prompt_tokens"] or 0,
+                row["cleanup_completion_tokens"] or 0,
             ))
             if len(buffer) >= _REASONING_COPY_BATCH:
                 await _flush()

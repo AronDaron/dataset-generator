@@ -311,6 +311,63 @@ _ASSISTANT_TARGETS = {
     "chatml":   ("messages",      "content", ("role", "assistant")),
 }
 
+# Per-message reasoning field. Thinking chat templates (Gemma 4, Qwen 3.5+,
+# GLM, DeepSeek V3.x) read `reasoning_content` off each assistant message and
+# render their own thought channel from it; none of them parse an inline
+# `<think>` back out of `content`, and a top-level array is invisible to them.
+# Unsloth's `standardize_sharegpt` additionally asserts exactly two keys per
+# `conversations` turn, so this format always re-shapes the record into
+# OpenAI-style `messages` — the one container trainers pass straight to
+# `apply_chat_template`.
+REASONING_CONTENT_KEY = "reasoning_content"
+
+_MESSAGES_SOURCES = {
+    "sharegpt": ("conversations", "from", "value", {"human": "user", "gpt": "assistant"}),
+    "chatml":   ("messages",      "role", "content", {"user": "user", "assistant": "assistant"}),
+}
+
+
+def to_messages_with_reasoning(
+    cleaned: dict[str, Any], fmt: str, proses: list[str],
+) -> dict[str, Any]:
+    """Re-shape a schema-clean example into ``{"messages": [...]}`` with
+    ``reasoning_content`` on each assistant message.
+
+    Roles map onto ``user``/``assistant``; alpaca becomes a single pair with
+    ``input`` appended to ``instruction`` after a blank line (the Alpaca
+    prompt convention). The i-th assistant message takes ``proses[i]``;
+    assistant messages beyond the array export without the key — a null
+    field renders as an empty thought, same as non-thinking inference.
+    """
+    if fmt == "alpaca":
+        instruction = cleaned.get("instruction", "")
+        extra = cleaned.get("input", "")
+        user_text = (
+            f"{instruction}\n\n{extra}"
+            if isinstance(extra, str) and extra.strip()
+            else instruction
+        )
+        assistant: dict[str, Any] = {"role": "assistant", "content": cleaned.get("output", "")}
+        if proses:
+            assistant[REASONING_CONTENT_KEY] = proses[0]
+        return {"messages": [{"role": "user", "content": user_text}, assistant]}
+
+    list_key, role_field, content_field, role_map = _MESSAGES_SOURCES[fmt]
+    messages: list[dict[str, Any]] = []
+    assistant_idx = 0
+    for turn in cleaned.get(list_key, []) or []:
+        if not isinstance(turn, dict):
+            continue
+        raw_role = turn.get(role_field)
+        role = role_map.get(raw_role, raw_role)
+        message: dict[str, Any] = {"role": role, "content": turn.get(content_field, "")}
+        if role == "assistant":
+            if assistant_idx < len(proses):
+                message[REASONING_CONTENT_KEY] = proses[assistant_idx]
+            assistant_idx += 1
+        messages.append(message)
+    return {"messages": messages}
+
 
 def count_assistant_turns(parsed: dict, fmt: str) -> int:
     """Count assistant-side response slots in a cleaned example.
@@ -422,12 +479,26 @@ def serialize_with_reasoning(
     - ``separate``: a top-level ``reasoning`` key (list of strings) is added
       next to the existing format keys. Cleaner structurally; needs a
       matching trainer template.
+    - ``reasoning_content``: the record is re-shaped into OpenAI-style
+      ``messages`` and each assistant message carries its prose under
+      ``reasoning_content`` — the field Gemma 4 / Qwen 3.5+ chat templates
+      render as their thought channel (see ``to_messages_with_reasoning``).
+      Rows without reasoning are re-shaped too, so every line of the JSONL
+      shares one top-level key.
 
     NULL/empty reasoning or NULL ``reasoning_format`` falls back to
     ``serialize_for_jsonl`` so skipped examples and non-reasoning jobs share
-    one code path.
+    one code path (``reasoning_content`` excepted, see above).
     """
     proses = _parse_reasoning(reasoning)
+    if reasoning_format == "reasoning_content":
+        parsed = json.loads(content_json)
+        if not isinstance(parsed, dict) or fmt not in SUPPORTED_FORMATS:
+            return json.dumps(parsed, ensure_ascii=False), []
+        cleaned, dropped = strip_to_schema(parsed, fmt)
+        reshaped = to_messages_with_reasoning(cleaned, fmt, proses)
+        return json.dumps(reshaped, ensure_ascii=False), dropped
+
     if not proses or not reasoning_format:
         return serialize_for_jsonl(content_json, fmt)
 

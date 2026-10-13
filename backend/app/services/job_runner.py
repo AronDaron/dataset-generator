@@ -10,17 +10,35 @@ from typing import Any
 
 import aiosqlite
 
-from app.models.jobs import CategoryConfig, CategoryProgress, JobConfig, JudgeStats, ProgressJson
+from app.models.jobs import (
+    CategoryConfig,
+    CategoryProgress,
+    CleanupStats,
+    JobConfig,
+    JudgeStats,
+    ProgressJson,
+)
 from app.utils import now_iso as _now_iso
+from app.services.cleanup_service import (
+    CLEANUP_PREFILTER,
+    clean_slot_response,
+    collect_texts,
+    check_slot,
+    needs_cleanup,
+    splice_texts,
+)
 from app.services.event_log import log_event
 from app.services.example_schema import validate_example
 from app.services.export_service import export_job
-from app.services.llm.base import LLMError, LLMProvider
+from app.services.llm.base import LLMError, LLMProvider, message_reasoning
+from app.services.llm.concurrency import provider_gate
 from app.services.llm.registry import get_provider
 from app.services.prompt_builder import (
+    build_cleanup_slot_prompt,
     build_example_generation_prompt,
     build_outline_generation_prompt,
     build_topic_generation_prompt,
+    cleanup_max_tokens,
 )
 from app.services.token_counter import count_tokens, effective_limit  # noqa: F401  (re-exported for tests)
 
@@ -40,6 +58,16 @@ _job_tasks: dict[str, "asyncio.Task[None]"] = {}
 TOPIC_BATCH_SIZE = 10
 _judge_semaphore = asyncio.Semaphore(3)
 _gen_semaphore = asyncio.Semaphore(10)
+# Cleanup runs *before* judge for the same example, so it gets its own pool:
+# sharing the judge semaphore would make the two stages queue behind each
+# other and serialize the whole pipeline.
+_cleanup_semaphore = asyncio.Semaphore(4)
+
+# Retries for one cleanup call (one text). Only transport failures are retried
+# — an acceptance-gate violation is systematic (this model rewrites), and at
+# temperature 0 a retry would return the same text, so those revert the slot
+# instead. There is no contract failure left to retry: the reply is the text.
+MAX_CLEANUP_RETRIES = 2
 
 # Reasoning models (Qwen3, Gemma 4, Devstral, Mistral Small 2603) can consume
 # a large share of max_tokens on <think> blocks before generating content.
@@ -49,6 +77,20 @@ _gen_semaphore = asyncio.Semaphore(10)
 # so the multiplier resolves to 1× and we don't waste tokens.
 API_TOKEN_MULTIPLIER_REASONING = 2
 API_TOKEN_MULTIPLIER_PLAIN = 1
+
+# Some local reasoning models scale their thinking to whatever budget they are
+# given and never reach the answer: measured on Qwen3.8-27B via Unsloth Studio,
+# 8192 tokens produced 35k characters of thinking and no content, and doubling
+# to 16384 produced 77k characters and still no content. Raising max_tokens is
+# therefore the wrong lever — the fix is to cap the thinking itself, which is
+# only possible on backends that advertise reasoning-effort levels.
+#
+# DEFAULT is sent on the first attempt so the common case costs one call rather
+# than one guaranteed-empty call plus a retry. FALLBACK trims further if that
+# still comes back empty. Levels are validated against what the backend
+# advertises, so an endpoint offering different names just gets nothing.
+REASONING_EFFORT_DEFAULT = "medium"
+REASONING_EFFORT_FALLBACK = "low"
 
 
 def _api_token_multiplier(provider: LLMProvider) -> int:
@@ -214,17 +256,24 @@ async def _generate_and_validate_example(
     """
     provider_tag = provider_route or "auto"
     multiplier = _api_token_multiplier(provider)
+    # Empty list for OpenRouter and for local backends without a capability
+    # endpoint, so both keep their previous behaviour untouched.
+    effort_levels = await provider.supported_reasoning_efforts(model)
+    reasoning_effort = (
+        REASONING_EFFORT_DEFAULT if REASONING_EFFORT_DEFAULT in effort_levels else None
+    )
     last_was_reasoning_starved = False
     for attempt in range(2):
         if attempt == 1:
-            if last_was_reasoning_starved:
-                # Local reasoning model burned the entire ×2 budget on
-                # thinking and never got to write `content`. Conciseness
-                # hint can't help — the model never reaches the user
-                # message. Bump the budget instead so reasoning has room
-                # AND content can land. Triggered only for providers that
-                # don't surface reasoning_tokens (Ollama / LM Studio);
-                # OpenRouter reports the breakdown so we never get here.
+            if last_was_reasoning_starved and REASONING_EFFORT_FALLBACK in effort_levels:
+                # The model talked itself out of a budget it can't outgrow.
+                # Trim the thinking rather than the answer — a conciseness hint
+                # is useless here because the model never reaches the user
+                # message, and a bigger budget just buys a longer monologue.
+                reasoning_effort = REASONING_EFFORT_FALLBACK
+            elif last_was_reasoning_starved:
+                # No effort control on this backend (Ollama / llama.cpp): the
+                # only remaining lever is room for reasoning AND content.
                 multiplier *= 2
             else:
                 messages = _inject_conciseness_hint(messages, int(max_tokens * 0.8))
@@ -238,6 +287,7 @@ async def _generate_and_validate_example(
                 max_retries=1,  # pipeline-level retry handles failures; avoid 3×480s compounding
                 retry_cooldown=retry_cooldown,
                 provider_route=provider_route,
+                reasoning_effort=reasoning_effort,
             )
         except LLMError as exc:
             logger.warning(
@@ -292,14 +342,14 @@ async def _generate_and_validate_example(
         if not raw:
             finish_reason = (response.get("choices") or [{}])[0].get("finish_reason")
             msg = ((response.get("choices") or [{}])[0].get("message") or {})
-            has_reasoning = bool(msg.get("reasoning"))
+            has_reasoning = bool(message_reasoning(msg))
             # Detect "reasoning starvation": the model emitted reasoning
             # (separate field or a `<think>` tag we already stripped) AND
             # ran out of budget AND the provider didn't break out
             # reasoning_tokens for us. OpenRouter populates
             # completion_tokens_details.reasoning_tokens, so this branch
             # only fires for local OpenAI-compat backends. Flag triggers
-            # the ×4 budget retry on the next iteration.
+            # the trimmed-effort (or ×4 budget) retry on the next iteration.
             raw_usage = response.get("usage") or {}
             reasoning_reported = (raw_usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
             if (
@@ -412,13 +462,16 @@ async def _save_example(
     judge_prompt_tokens: int = 0,
     judge_completion_tokens: int = 0,
     category: str = "",
+    cleanup_prompt_tokens: int = 0,
+    cleanup_completion_tokens: int = 0,
 ) -> None:
     now = _now_iso()
     await db.execute(
         "INSERT INTO examples "
         "(id, job_id, content_json, format, tokens, created_at, judge_score, "
-        " prompt_tokens, completion_tokens, model, judge_prompt_tokens, judge_completion_tokens, category) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " prompt_tokens, completion_tokens, model, judge_prompt_tokens, judge_completion_tokens, category, "
+        " cleanup_prompt_tokens, cleanup_completion_tokens) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             str(uuid.uuid4()), job_id, json.dumps(content), fmt,
             completion_tokens,  # tokens column = output tokens only (excludes prompt)
@@ -426,6 +479,7 @@ async def _save_example(
             prompt_tokens, completion_tokens, model,
             judge_prompt_tokens, judge_completion_tokens,
             category,
+            cleanup_prompt_tokens, cleanup_completion_tokens,
         ),
     )
     await db.commit()
@@ -575,6 +629,173 @@ async def _judge_example(
         return None, _EMPTY_USAGE
 
 
+async def _cleanup_example(
+    provider: LLMProvider,
+    content: dict,
+    fmt: str,
+    model: str,
+    *,
+    cleanup_rules: str,
+    config_max_tokens: int,
+    provider_route: str | None = None,
+    expected_turns: int | None = None,
+    job_id: str | None = None,
+    category: str | None = None,
+    topic: str | None = None,
+) -> tuple[dict | None, dict, str]:
+    """Run the cleanup stage on one example. Returns (content, usage, outcome).
+
+    ``outcome`` is one of ``modified`` / ``unchanged`` / ``reverted`` /
+    ``failed``. The returned content is ``None`` whenever the caller should
+    keep the original — either because there was nothing to do or because the
+    stage failed; a failure is never fatal, the example simply stays as it was.
+
+    One request per text, and the reply *is* that text — no JSON array to keep
+    intact, so a long example can no longer be lost to a single misplaced
+    brace (see ``prompt_builder.build_cleanup_prompt`` for the failure this
+    replaced). The cost is N calls instead of one; the token count is the same,
+    because the model has to echo the same characters either way.
+
+    Structural safety is by construction: the model only sees one text at a
+    time and each answer is spliced back into a deep copy at the exact
+    coordinates it came from. Every returned text still has to pass
+    ``check_slot`` (growth, shrink, code, paraphrase, empty) on its own, and
+    the spliced example is re-validated against the schema before it is
+    accepted — a cleanup pass must never be the thing that breaks a job.
+
+    Retries (``MAX_CLEANUP_RETRIES``) cover transport failures only. A gate
+    violation reverts that one slot to the original instead: at temperature 0
+    a retry returns the same text, and the original already passed
+    generation-time validation.
+    """
+    usage: dict = {"prompt_tokens": 0, "completion_tokens": 0}
+    try:
+        slots = collect_texts(content, fmt)
+        if not slots:
+            return None, _EMPTY_USAGE, "unchanged"
+
+        originals = [slot.text for slot in slots]
+        if CLEANUP_PREFILTER and not needs_cleanup(originals):
+            return None, _EMPTY_USAGE, "unchanged"
+
+        texts: list[str] = []
+        reverted = 0
+
+        for slot in slots:
+            # Cancellation is checked per slot, not per example: one example is
+            # now several calls, and on a local model that is minutes of work.
+            if job_id and is_cancelled(job_id):
+                raise _CancelledError()
+
+            messages = build_cleanup_slot_prompt(slot, cleanup_rules, fmt, content)
+            # Budget derived from this one text, not from the whole example.
+            max_tokens = cleanup_max_tokens(slot.text, config_max_tokens)
+            raw: str | None = None
+
+            for attempt in range(MAX_CLEANUP_RETRIES):
+                if job_id and is_cancelled(job_id):
+                    raise _CancelledError()
+                try:
+                    # Local backends serialize here; cloud providers pass straight
+                    # through. Temperature is pinned to 0.0 on purpose — a job run
+                    # at 1.2 would turn the normalizer into an author.
+                    async with provider_gate(provider):
+                        response = await provider.chat(
+                            model=model,
+                            messages=messages,
+                            temperature=0.0,
+                            max_tokens=max_tokens,
+                            max_retries=1,
+                            provider_route=provider_route,
+                            disable_thinking=True,
+                        )
+                    u = _extract_usage(response)
+                    usage["prompt_tokens"] += u["prompt_tokens"]
+                    usage["completion_tokens"] += u["completion_tokens"]
+                    raw = _extract_content(response)
+                    break
+                except _CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "[cleanup] API error: model=%s slot=%d attempt=%d err=%r",
+                        model, slot.index, attempt + 1, exc,
+                    )
+                    if job_id:
+                        log_event(
+                            job_id, "cleanup_api_error",
+                            category=category, attempt=attempt + 1, model=model,
+                            error_type=type(exc).__name__,
+                        )
+
+            if raw is None:
+                # This text never came back. Splicing the cleaned siblings
+                # around it would ship a half-cleaned example, so the whole
+                # example keeps its original content.
+                if job_id:
+                    log_event(
+                        job_id, "cleanup_failed_all_retries",
+                        category=category, topic=topic, turn=slot.index,
+                        max_retries=MAX_CLEANUP_RETRIES,
+                    )
+                return None, usage, "failed"
+
+            # The only parsing left: strip the wrappers a chatty model adds.
+            cleaned_text = clean_slot_response(raw)
+
+            slot_reason = check_slot(slot.text, cleaned_text)
+            if slot_reason is not None:
+                texts.append(slot.text)
+                reverted += 1
+                if job_id:
+                    log_event(
+                        job_id, "cleanup_reverted_slot",
+                        category=category, turn=slot.index, reason=slot_reason,
+                    )
+                continue
+
+            texts.append(cleaned_text)
+
+        cleaned = splice_texts(content, fmt, texts)
+
+        # Re-validate: the splice cannot change the structure, but the texts
+        # can (an assistant turn emptied of everything but a fence, say).
+        result = validate_example(cleaned, fmt, expected_turns=expected_turns)
+        if not result["ok"]:
+            logger.warning(
+                "[cleanup] cleaned example failed schema check: reason=%s detail=%s",
+                result["reason"], result["detail"],
+            )
+            if job_id:
+                log_event(
+                    job_id, "cleanup_result_invalid",
+                    category=category, reason=result["reason"], detail=result["detail"],
+                )
+            return None, usage, "failed"
+
+        changed = sum(1 for i, original in enumerate(originals) if texts[i] != original)
+        if changed == 0 and reverted == 0:
+            return cleaned, usage, "unchanged"
+
+        if changed and job_id:
+            removed = sum(len(o) for o in originals) - sum(len(t) for t in texts)
+            log_event(
+                job_id, "cleanup_applied",
+                category=category, removed_chars=removed, slots=changed,
+            )
+
+        # A revert dominates the outcome so the stat actually counts rollbacks:
+        # an example whose every slot was rolled back is not "unchanged", it is
+        # a cleanup the gates refused.
+        return cleaned, usage, "reverted" if reverted else "modified"
+
+    except _CancelledError:
+        raise
+    except Exception:
+        logger.warning("Cleanup call failed (non-fatal)", exc_info=True)
+        return None, usage, "failed"
+
+
 async def _generate_example(
     provider: LLMProvider,
     config: JobConfig,
@@ -622,18 +843,30 @@ async def _resolve_category_providers(
     db: aiosqlite.Connection,
     cat: CategoryConfig,
     config: JobConfig,
-) -> tuple[LLMProvider, LLMProvider | None]:
-    """Resolve gen + (optional) judge provider for a category.
+) -> tuple[LLMProvider, LLMProvider | None, LLMProvider | None]:
+    """Resolve gen + (optional) cleanup + (optional) judge provider for a category.
 
-    Falls back through cat → job → default. The judge provider falls back to the
-    gen provider when the user didn't pick a different one — same model with a
-    different system prompt is the common case.
+    Falls back through cat → job → default. Both the cleanup and the judge
+    provider fall back to the gen provider when the user didn't pick a
+    different one — same endpoint with a different system prompt is the common
+    case. A stage that is switched off resolves to None so its provider is
+    never looked up.
     """
     gen_id = cat.provider_id or config.provider_id
     gen_provider = await get_provider(db, gen_id)
 
+    cleanup_provider: LLMProvider | None = None
+    if config.cleanup_enabled:
+        cleanup_id = (
+            cat.cleanup_provider_id
+            or config.cleanup_provider_id
+            or cat.provider_id
+            or config.provider_id
+        )
+        cleanup_provider = await get_provider(db, cleanup_id)
+
     if not config.judge_enabled:
-        return gen_provider, None
+        return gen_provider, cleanup_provider, None
 
     judge_id = (
         cat.judge_provider_id
@@ -642,7 +875,7 @@ async def _resolve_category_providers(
         or config.provider_id
     )
     judge_provider = await get_provider(db, judge_id)
-    return gen_provider, judge_provider
+    return gen_provider, cleanup_provider, judge_provider
 
 
 async def _run_category(
@@ -650,6 +883,7 @@ async def _run_category(
     count: int,
     config: JobConfig,
     gen_provider: LLMProvider,
+    cleanup_provider: LLMProvider | None,
     judge_provider: LLMProvider | None,
     db: aiosqlite.Connection,
     job_id: str,
@@ -667,6 +901,8 @@ async def _run_category(
     total_attempts = 0
     effective_model = cat.model or config.model
     effective_provider_route = cat.provider
+    effective_cleanup_model = cat.cleanup_model or config.cleanup_model or config.model
+    effective_cleanup_provider_route = cat.cleanup_provider or config.cleanup_provider
     effective_judge_model = cat.judge_model or config.judge_model or config.model
     effective_judge_provider_route = cat.judge_provider or config.judge_provider
 
@@ -738,6 +974,45 @@ async def _run_category(
         save_this = True
         total_judge_prompt = 0
         total_judge_completion = 0
+        total_cleanup_prompt = 0
+        total_cleanup_completion = 0
+
+        # ── Cleanup stage (generation → cleanup → judge) ──────────────────
+        # Overwriting `content` here is the whole point: judge and
+        # _save_example below both see the cleaned version. `tokens` is NOT
+        # recomputed — that column means "generation output tokens" and is the
+        # basis of the generation cost; deleting characters afterwards doesn't
+        # make the generation call cheaper.
+        if config.cleanup_enabled and cleanup_provider is not None:
+            if is_cancelled(job_id):
+                raise _CancelledError()
+            if progress.cleanup_stats is None:
+                progress.cleanup_stats = CleanupStats()
+            progress.cleanup_stats.processed += 1
+            async with _cleanup_semaphore:
+                cleaned, cleanup_usage, cleanup_outcome = await _cleanup_example(
+                    cleanup_provider, content, config.format, effective_cleanup_model,
+                    cleanup_rules=config.cleanup_rules,
+                    config_max_tokens=config.max_tokens,
+                    provider_route=effective_cleanup_provider_route,
+                    expected_turns=config.conversation_turns,
+                    job_id=job_id,
+                    category=cat.name,
+                    topic=topic,
+                )
+            total_cleanup_prompt += cleanup_usage["prompt_tokens"]
+            total_cleanup_completion += cleanup_usage["completion_tokens"]
+            await asyncio.sleep(delay)
+            if cleaned is not None:
+                content = cleaned
+            if cleanup_outcome == "modified":
+                progress.cleanup_stats.modified += 1
+            elif cleanup_outcome == "reverted":
+                progress.cleanup_stats.reverted += 1
+            elif cleanup_outcome == "failed":
+                progress.cleanup_stats.failed += 1
+            else:
+                progress.cleanup_stats.unchanged += 1
 
         if config.judge_enabled and judge_provider is not None:
             if progress.judge_stats is None:
@@ -819,6 +1094,8 @@ async def _run_category(
                 judge_prompt_tokens=total_judge_prompt,
                 judge_completion_tokens=total_judge_completion,
                 category=cat.name,
+                cleanup_prompt_tokens=total_cleanup_prompt,
+                cleanup_completion_tokens=total_cleanup_completion,
             )
             progress.categories[cat.name].completed += 1
             progress.completed += 1
@@ -868,9 +1145,9 @@ async def run_job(
               attempts per category (prevents infinite loop on total failure).
 
     Provider resolution:
-      - Per-category gen + judge providers are resolved from the DB once before
-        the parallel stage starts, so a single provider lookup serves the whole
-        category run.
+      - Per-category gen + cleanup + judge providers are resolved from the DB
+        once before the parallel stage starts, so a single provider lookup
+        serves the whole category run.
 
     Progress and status are persisted to SQLite after every example.
     Checks is_cancelled(job_id) before each LLM call.
@@ -915,7 +1192,9 @@ async def run_job(
 
     try:
         # ── Resolve providers per category up front ───────────────────────
-        cat_providers: dict[str, tuple[LLMProvider, LLMProvider | None]] = {}
+        cat_providers: dict[
+            str, tuple[LLMProvider, LLMProvider | None, LLMProvider | None]
+        ] = {}
         for cat in config.categories:
             cat_providers[cat.name] = await _resolve_category_providers(db, cat, config)
 
@@ -927,7 +1206,7 @@ async def run_job(
             progress.current_category = cat.name
             await _update_progress(db, job_id, "running", progress)
 
-            gen_provider, _judge = cat_providers[cat.name]
+            gen_provider, _cleanup, _judge = cat_providers[cat.name]
             topics = await _generate_topics(
                 gen_provider, config, cat, min(TOPIC_BATCH_SIZE, count),
                 overhead=overhead, job_id=job_id,
@@ -942,12 +1221,12 @@ async def run_job(
 
         tasks = []
         for cat, count in zip(config.categories, counts):
-            gen_provider, judge_provider = cat_providers[cat.name]
+            gen_provider, cleanup_provider, judge_provider = cat_providers[cat.name]
             tasks.append(
                 asyncio.create_task(
                     _run_category(
                         cat, count, config,
-                        gen_provider, judge_provider,
+                        gen_provider, cleanup_provider, judge_provider,
                         db, job_id, progress, all_topics, delay,
                         overhead=overhead,
                     ),
@@ -989,24 +1268,41 @@ async def run_job(
             )
             for c in config.categories
         }
+        # Cleanup pricing per category (fallback: global). No legacy
+        # per-token equivalent — the stage has no pre-v9 history.
+        c_pp_fallback = config.cleanup_prompt_price
+        c_cp_fallback = config.cleanup_completion_price
+        cat_cleanup_prices = {
+            c.name: (
+                c.cleanup_prompt_price or c_pp_fallback,
+                c.cleanup_completion_price or c_cp_fallback,
+            )
+            for c in config.categories
+        }
         async with db.execute(
             "SELECT category, model, "
             "       COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), "
-            "       COALESCE(SUM(judge_prompt_tokens), 0), COALESCE(SUM(judge_completion_tokens), 0) "
+            "       COALESCE(SUM(judge_prompt_tokens), 0), COALESCE(SUM(judge_completion_tokens), 0), "
+            "       COALESCE(SUM(cleanup_prompt_tokens), 0), COALESCE(SUM(cleanup_completion_tokens), 0) "
             "FROM examples WHERE job_id = ? GROUP BY category, model",
             (job_id,),
         ) as cur:
             rows = await cur.fetchall()
 
+        # Deliberately still keyed on generation tokens: folding cleanup in
+        # would push pre-usage-tracking jobs into the wrong branch.
         has_new_usage = any(r[2] > 0 or r[3] > 0 for r in rows)
         if has_new_usage:
             gen_cost = 0.0
             judge_cost = 0.0
-            for cat_name, model_id, pt, ct, jpt, jct in rows:
+            cleanup_cost = 0.0
+            for cat_name, model_id, pt, ct, jpt, jct, cpt, cct in rows:
                 pp, cp = cat_prices.get(model_id, (0.0, 0.0))
                 gen_cost += pt * pp + ct * cp
                 j_pp, j_cp = cat_judge_prices.get(cat_name, (j_pp_fallback, j_cp_fallback))
                 judge_cost += jpt * j_pp + jct * j_cp
+                c_pp, c_cp = cat_cleanup_prices.get(cat_name, (c_pp_fallback, c_cp_fallback))
+                cleanup_cost += cpt * c_pp + cct * c_cp
             # Add overhead (topic + outline generation costs)
             for oh_model, oh_usage in overhead.get("by_model", {}).items():
                 pp, cp = cat_prices.get(oh_model, (0.0, 0.0))
@@ -1015,6 +1311,8 @@ async def run_job(
                 progress.actual_cost = gen_cost
             if judge_cost > 0:
                 progress.judge_cost = judge_cost
+            if cleanup_cost > 0:
+                progress.cleanup_cost = cleanup_cost
         else:
             # Fallback for old jobs (pre-migration) — use legacy averaged pricing
             if config.model_price_per_token > 0:
@@ -1147,6 +1445,7 @@ async def resume_job(job_id: str) -> None:
         current_category=None,
         categories=categories,
         judge_stats=stored_progress.judge_stats if stored_progress else None,
+        cleanup_stats=stored_progress.cleanup_stats if stored_progress else None,
     )
 
     log_event(job_id, "job_resumed", completed=total_completed, target=config.total_examples)

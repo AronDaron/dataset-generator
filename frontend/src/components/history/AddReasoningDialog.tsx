@@ -11,6 +11,7 @@ import {
   getModelEndpoints,
   type JobListItem,
   type ModelOption,
+  type ReasoningFormat,
   type ReasoningRequest,
 } from '@/lib/api'
 import { toGroupedOptions } from '@/lib/model-utils'
@@ -42,7 +43,7 @@ export function AddReasoningDialog({
   onClose,
   onSubmit,
 }: AddReasoningDialogProps) {
-  const [format, setFormat] = useState<'inline' | 'separate'>('inline')
+  const [format, setFormat] = useState<ReasoningFormat>('inline')
 
   // Model list is identical to what the gen page surfaces — one flat list
   // aggregated across every enabled provider, with the company prefix
@@ -239,8 +240,8 @@ export function AddReasoningDialog({
                 >
                   <div className="font-semibold">Inline &lt;think&gt;</div>
                   <div className="mt-1 text-[11px] text-text-3">
-                    Recommended. Reasoning is injected into the first assistant
-                    turn — broadest trainer compatibility.
+                    <span className="font-mono">&lt;think&gt;</span> block prepended
+                    to every assistant turn — DeepSeek-R1 / Qwen3 convention.
                   </div>
                 </button>
                 <button
@@ -258,6 +259,24 @@ export function AddReasoningDialog({
                   <div className="mt-1 text-[11px] text-text-3">
                     Adds a top-level <span className="font-mono">reasoning</span> key
                     next to the existing format. Needs trainer template config.
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormat('reasoning_content')}
+                  className={cn(
+                    'flex-1 rounded-lg border px-4 py-3 text-left text-sm transition-colors',
+                    format === 'reasoning_content'
+                      ? 'border-transparent bg-accent-soft text-primary'
+                      : 'border-border bg-card text-text-2 hover:border-line-strong hover:bg-muted hover:text-text-0',
+                  )}
+                  disabled={submitting}
+                >
+                  <div className="font-semibold">Per-message field</div>
+                  <div className="mt-1 text-[11px] text-text-3">
+                    Exports OpenAI-style <span className="font-mono">messages</span> with{' '}
+                    <span className="font-mono">reasoning_content</span> on each assistant
+                    turn — native for Gemma 4 / Qwen 3.5+ thinking templates.
                   </div>
                 </button>
               </div>

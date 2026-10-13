@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.database import get_db
+from app.services.prompt_builder import DEFAULT_CLEANUP_RULES
 from app.utils import now_iso as _now_iso
 
 router = APIRouter()
@@ -14,6 +15,7 @@ CONFIG_KEYS = [
     "judge_enabled", "judge_model", "judge_threshold",
     "conversation_turns", "judge_criteria",
     "judge_provider",
+    "cleanup_model", "cleanup_rules", "cleanup_provider",
     "embedding_model",
 ]
 CONFIG_DEFAULTS = {
@@ -27,6 +29,11 @@ CONFIG_DEFAULTS = {
     "conversation_turns": "2",
     "judge_criteria": "relevance, coherence, naturalness, and educational value",
     "judge_provider": "",
+    # `cleanup_enabled` deliberately absent: it is a per-run switch kept in the
+    # generator draft, so saving the settings dialog cannot flip it.
+    "cleanup_model": "",
+    "cleanup_rules": DEFAULT_CLEANUP_RULES,
+    "cleanup_provider": "",
     "embedding_model": "openai/text-embedding-3-small",
 }
 
@@ -60,6 +67,9 @@ class GlobalConfig(BaseModel):
     conversation_turns: int = Field(default=2, ge=1, le=5)
     judge_criteria: str = Field(default="relevance, coherence, naturalness, and educational value")
     judge_provider: Optional[str] = None
+    cleanup_model: Optional[str] = None
+    cleanup_rules: str = Field(default=DEFAULT_CLEANUP_RULES)
+    cleanup_provider: Optional[str] = None
     embedding_model: Optional[str] = Field(default="openai/text-embedding-3-small")
 
 
@@ -123,6 +133,9 @@ async def get_config(db: aiosqlite.Connection = Depends(get_db)) -> GlobalConfig
         conversation_turns=int(values["conversation_turns"]),
         judge_criteria=values["judge_criteria"],
         judge_provider=values["judge_provider"] or None,
+        cleanup_model=values["cleanup_model"] or None,
+        cleanup_rules=values["cleanup_rules"],
+        cleanup_provider=values["cleanup_provider"] or None,
         embedding_model=values["embedding_model"] or None,
     )
 
@@ -143,6 +156,9 @@ async def update_config(
         "conversation_turns": str(body.conversation_turns),
         "judge_criteria": body.judge_criteria,
         "judge_provider": body.judge_provider or "",
+        "cleanup_model": body.cleanup_model or "",
+        "cleanup_rules": body.cleanup_rules,
+        "cleanup_provider": body.cleanup_provider or "",
         "embedding_model": body.embedding_model or "",
     }
     now = _now_iso()

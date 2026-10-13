@@ -157,6 +157,22 @@ async def _migration_v8(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_v9(db: aiosqlite.Connection) -> None:
+    """Cleanup stage token tracking (F1).
+
+    The cleanup pass sits between generation and judge and costs its own
+    tokens, so it needs columns of its own — reusing the generation or judge
+    counters would corrupt both the cost aggregate and the Quality Report.
+    Defaults are 0, so pre-v9 rows (and every row produced while the stage
+    stays disabled) report no cleanup spend.
+    """
+    for col in [
+        "cleanup_prompt_tokens INTEGER NOT NULL DEFAULT 0",
+        "cleanup_completion_tokens INTEGER NOT NULL DEFAULT 0",
+    ]:
+        await db.execute(f"ALTER TABLE examples ADD COLUMN {col}")
+
+
 VERSIONED_MIGRATIONS = [
     _migration_v1,
     _migration_v2,
@@ -166,6 +182,7 @@ VERSIONED_MIGRATIONS = [
     _migration_v6,
     _migration_v7,
     _migration_v8,
+    _migration_v9,
 ]
 
 

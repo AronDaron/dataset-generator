@@ -296,13 +296,26 @@ export function JobDashboard({ jobId, onReset, judgeThreshold = 80, refreshSigna
                 )}
               </>
             )}
+            {progress.cleanup_stats && (
+              <>
+                <StatChip label="cleaned" value={progress.cleanup_stats.modified} />
+                <StatChip
+                  label="reverted"
+                  value={progress.cleanup_stats.reverted}
+                  variant={progress.cleanup_stats.reverted > 0 ? 'warn' : 'default'}
+                />
+              </>
+            )}
           </div>
 
-          {/* Cost row — 2 cols separately */}
-          {(progress.actual_cost != null || progress.judge_cost != null) && (
-            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+          {/* Cost row — 2 cols, 3 once cleanup reports a cost */}
+          {(progress.actual_cost != null || progress.judge_cost != null || progress.cleanup_cost != null) && (
+            <div className={cn('mt-1.5 grid gap-1.5', progress.cleanup_cost != null ? 'grid-cols-3' : 'grid-cols-2')}>
               {progress.actual_cost != null && (
                 <StatChip label="gen cost" value={`$${progress.actual_cost.toFixed(4)}`} />
+              )}
+              {progress.cleanup_cost != null && (
+                <StatChip label="cleanup cost" value={`$${progress.cleanup_cost.toFixed(4)}`} />
               )}
               {progress.judge_cost != null && (
                 <StatChip label="judge cost" value={`$${progress.judge_cost.toFixed(4)}`} />

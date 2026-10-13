@@ -95,9 +95,10 @@ interface CategoryListProps {
   onChange: (categories: Category[]) => void
   modelOptions?: SelectOption[]
   judgeEnabled?: boolean
+  cleanupEnabled?: boolean
 }
 
-export function CategoryList({ categories, onChange, modelOptions = [], judgeEnabled = false }: CategoryListProps) {
+export function CategoryList({ categories, onChange, modelOptions = [], judgeEnabled = false, cleanupEnabled = false }: CategoryListProps) {
   const isFull = categories.length >= 10
 
   function isPresetActive(name: string): boolean {
@@ -231,6 +232,7 @@ export function CategoryList({ categories, onChange, modelOptions = [], judgeEna
                 canRemove={true}
                 modelOptions={modelOptions}
                 judgeEnabled={judgeEnabled}
+                cleanupEnabled={cleanupEnabled}
                 onUpdate={handleUpdate}
                 onRemove={handleRemove}
                 onProportionChange={handleProportionChange}

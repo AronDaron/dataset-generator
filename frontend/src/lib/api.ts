@@ -22,6 +22,9 @@ export interface GlobalConfig {
   conversation_turns: number
   judge_criteria: string
   judge_provider?: string
+  cleanup_model?: string
+  cleanup_rules?: string
+  cleanup_provider?: string
   embedding_model?: string
 }
 
@@ -145,6 +148,11 @@ export interface CategoryConfig {
   judge_provider_id?: string
   judge_prompt_price?: number
   judge_completion_price?: number
+  cleanup_model?: string
+  cleanup_provider?: string
+  cleanup_provider_id?: string
+  cleanup_prompt_price?: number
+  cleanup_completion_price?: number
 }
 
 export interface JobConfig {
@@ -167,6 +175,13 @@ export interface JobConfig {
   judge_provider?: string
   provider_id?: string
   judge_provider_id?: string
+  cleanup_enabled?: boolean
+  cleanup_model?: string
+  cleanup_rules?: string
+  cleanup_provider?: string
+  cleanup_provider_id?: string
+  cleanup_prompt_price?: number
+  cleanup_completion_price?: number
 }
 
 export interface JobCreatedResponse {
@@ -282,6 +297,16 @@ export interface JudgeStats {
   avg_score?: number | null
 }
 
+/** Outcome tally of the cleanup stage. Cleanup never rejects an example —
+ *  these counters only describe what the stage did to the content. */
+export interface CleanupStats {
+  processed: number
+  modified: number
+  unchanged: number
+  reverted: number
+  failed: number
+}
+
 export interface ProgressJson {
   total_examples: number
   completed: number
@@ -301,11 +326,17 @@ export interface ProgressJson {
     | 'reasoning_generating'
     | 'reasoning_exporting'
     | 'reasoning_computing_stats'
+    | 'cleanup_copying'
+    | 'cleanup_processing'
+    | 'cleanup_exporting'
+    | 'cleanup_computing_stats'
   current_category: string | null
   categories: Record<string, CategoryProgress>
   judge_stats: JudgeStats | null
+  cleanup_stats?: CleanupStats | null
   actual_cost?: number | null
   judge_cost?: number | null
+  cleanup_cost?: number | null
   reasoning_cost?: number | null
 }
 
@@ -419,8 +450,10 @@ export interface JobListItem {
   actual_cost?: number | null
   judge_cost?: number | null
   is_merged?: boolean
+  /** True for a cleanup post-process pass — a cleaned copy of another dataset. */
+  is_cleanup_post?: boolean
   parent_job_id?: string | null
-  reasoning_format?: 'inline' | 'separate' | null
+  reasoning_format?: ReasoningFormat | null
   reasoning_models?: string[]
 }
 
@@ -511,7 +544,7 @@ export interface JobDetail {
   created_at: string
   updated_at: string
   parent_job_id?: string | null
-  reasoning_format?: 'inline' | 'separate' | null
+  reasoning_format?: ReasoningFormat | null
 }
 
 export async function getJob(jobId: string): Promise<JobDetail> {
@@ -701,6 +734,23 @@ export async function deleteExample(
   })
 }
 
+export interface BulkDeleteExamplesResponse {
+  deleted: number
+  remaining: number
+}
+
+/** Delete many examples in one request (one JSONL re-export on the backend). */
+export async function deleteExamplesBulk(
+  jobId: string,
+  exampleIds: string[],
+): Promise<BulkDeleteExamplesResponse> {
+  return request<BulkDeleteExamplesResponse>(`/api/jobs/${jobId}/examples/bulk-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ example_ids: exampleIds }),
+  })
+}
+
 // ---- Merge ----
 
 export interface MergeRequest {
@@ -750,8 +800,17 @@ export interface ReasoningCategoryConfig {
   provider_id: string
 }
 
+/**
+ * How reasoning prose lands in the exported JSONL.
+ * - inline: `<think>…</think>` prepended to each assistant text
+ * - separate: top-level `reasoning: string[]`
+ * - reasoning_content: OpenAI-style `messages` with a per-assistant-message
+ *   `reasoning_content` field — read natively by Gemma 4 / Qwen 3.5+ templates
+ */
+export type ReasoningFormat = 'inline' | 'separate' | 'reasoning_content'
+
 export interface ReasoningRequest {
-  format: 'inline' | 'separate'
+  format: ReasoningFormat
   categories: ReasoningCategoryConfig[]
   temperature?: number
   max_tokens?: number
@@ -769,6 +828,47 @@ export async function addReasoning(
 ): Promise<ReasoningResponse> {
   return request<ReasoningResponse>(
     `/api/jobs/${sourceJobId}/add-reasoning`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    },
+  )
+}
+
+// ---- Cleanup post-process ----
+
+/** Optional per-category override of the job-level cleanup model. The UI
+ *  sends one model for the whole dataset; the field exists for API callers. */
+export interface CleanupCategoryOverride {
+  name: string
+  model?: string
+  provider_id?: string
+  provider_route?: string
+}
+
+export interface CleanupJobRequest {
+  model: string
+  provider_id: string
+  provider_route?: string
+  cleanup_rules: string
+  prompt_price?: number
+  completion_price?: number
+  categories?: CleanupCategoryOverride[]
+}
+
+export interface CleanupJobResponse {
+  job_id: string
+  parent_job_id: string
+  total_examples: number
+}
+
+export async function addCleanup(
+  sourceJobId: string,
+  req: CleanupJobRequest,
+): Promise<CleanupJobResponse> {
+  return request<CleanupJobResponse>(
+    `/api/jobs/${sourceJobId}/add-cleanup`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

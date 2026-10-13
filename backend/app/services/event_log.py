@@ -49,6 +49,21 @@ _TEMPLATES: dict[str, tuple[Level, str]] = {
     "judge_no_score_retry":          ("warn",  'Judge retry {attempt}/{max_retries} — "{topic}"'),
     "judge_failed_all_retries":      ("error", 'Judge failed all retries — "{topic}"'),
     "judge_rejected_below_threshold":("warn",  'Judge rejected "{topic}" (score {score}<{threshold})'),
+    # Cleanup stage — never "error": a failed cleanup keeps the original
+    # example, so the job carries on with exactly the content it had before.
+    "cleanup_applied":               ("info",  "{category} — cleanup removed {removed_chars} chars from {slots} turn(s)"),
+    "cleanup_reverted_slot":         ("warn",  "{category} — cleanup reverted turn {turn} ({reason})"),
+    "cleanup_invalid_response":      ("warn",  "{category} — cleanup response rejected ({reason}, attempt {attempt})"),
+    "cleanup_failed_all_retries":    ("warn",  'Cleanup failed all retries — "{topic}" (original kept)'),
+    "cleanup_result_invalid":        ("warn",  "{category} — cleaned example failed schema check, original kept"),
+    "cleanup_api_error":             ("warn",  "{category} — cleanup API error (attempt {attempt})"),
+    # Cleanup post-process (add-cleanup on a finished dataset). The per-example
+    # events above are shared with the inline stage — only the job-level
+    # bookends are new.
+    "cleanup_job_started":           ("info",  "Cleanup pass started — {total} examples, model={model}"),
+    "cleanup_job_copy_batch":        ("info",  "Copied {done}/{total} examples"),
+    "cleanup_job_completed":         ("info",  "Cleanup complete — {modified} modified, {reverted} reverted, {failed} failed"),
+    "cleanup_job_failed":            ("error", "Cleanup pass failed: {error}"),
     "category_attempt_limit_reached":("error", "{category} — attempt limit reached ({completed}/{target})"),
     "example_accepted":              ("info",  "{category} — accepted (score {score})"),
     "example_accepted_no_judge":     ("info",  "{category} — accepted"),

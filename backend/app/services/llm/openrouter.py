@@ -79,17 +79,24 @@ class OpenRouterProvider(LLMProvider):
         messages: list[dict[str, str]],
         *,
         temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_tokens: int | None = 2048,
         max_retries: int = MAX_RETRIES,
         retry_cooldown: int = RETRY_COOLDOWN,
         provider_route: str | None = None,
+        reasoning_effort: str | None = None,
+        disable_thinking: bool = False,  # noqa: ARG002 — OpenRouter has no equivalent hint
     ) -> ChatResult:
+        # reasoning_effort silently ignored — OpenRouter breaks out reasoning
+        # tokens in usage, so the pipeline never needs to trim its thinking
+        # budget here (see supported_reasoning_efforts() returning []).
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
         }
+        if max_tokens is not None:
+            # None = no ceiling (see OpenAICompatProvider.chat).
+            payload["max_tokens"] = max_tokens
         if provider_route:
             payload["provider"] = {"order": [provider_route], "allow_fallbacks": False}
             logger.debug("Provider routing: model=%s provider=%s", model, provider_route)

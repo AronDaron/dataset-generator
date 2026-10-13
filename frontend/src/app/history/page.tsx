@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, AlertCircle, CheckCircle2, XCircle, Upload, Merge, RotateCcw, X, Sparkles, Tags, Download } from 'lucide-react'
+import { ChevronLeft, Copy, Eye, FolderOpen, Loader2, Trash2, AlertCircle, CheckCircle2, XCircle, Upload, Merge, RotateCcw, X, Sparkles, Tags, Download, Wand2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { addMetadata, addReasoning, getJob, getJobs, getHfToken, deleteJobWithProgress, openDatasetsFolder, findDuplicates, mergeDatasets, resumeJob, dismissJob, type AddMetadataResponse, type JobListItem, type DeleteProgress, type ReasoningRequest } from '@/lib/api'
+import { addCleanup, addMetadata, addReasoning, getJob, getJobs, getHfToken, deleteJobWithProgress, openDatasetsFolder, findDuplicates, mergeDatasets, resumeJob, dismissJob, type AddMetadataResponse, type CleanupJobRequest, type JobListItem, type DeleteProgress, type ReasoningRequest } from '@/lib/api'
 import { isPywebview } from '@/lib/runtime'
 import { UploadHfModal } from '@/components/history/UploadHfModal'
 import { AddReasoningDialog } from '@/components/history/AddReasoningDialog'
+import { AddCleanupDialog } from '@/components/history/AddCleanupDialog'
 import { StatusLegendPopover } from '@/components/jobs/StatusLegendPopover'
 import { STAGE_LABELS } from '@/lib/status-tone'
 
@@ -145,11 +146,13 @@ interface JobRowProps {
   dismissingId: string | null
   onAddReasoning: (job: JobListItem) => void
   reasoningStartingId: string | null
+  onAddCleanup: (job: JobListItem) => void
+  cleanupStartingId: string | null
   onAddMetadata: (id: string) => void
   metadataAddingId: string | null
 }
 
-function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, onOpenFolder, onUpload, selected, onToggle, onResume, resumingId, onDismiss, dismissingId, onAddReasoning, reasoningStartingId, onAddMetadata, metadataAddingId }: JobRowProps) {
+function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, onOpenFolder, onUpload, selected, onToggle, onResume, resumingId, onDismiss, dismissingId, onAddReasoning, reasoningStartingId, onAddCleanup, cleanupStartingId, onAddMetadata, metadataAddingId }: JobRowProps) {
   const [dedupState, setDedupState] = useState<'idle' | 'scanning' | 'done'>('idle')
   const [dedupCount, setDedupCount] = useState(0)
 
@@ -201,13 +204,24 @@ function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, 
               Merged
             </span>
           )}
+          {job.is_cleanup_post && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-transparent bg-accent-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary"
+              title="Cleaned copy of another dataset — the source is unchanged"
+            >
+              <Wand2 className="size-3" />
+              Cleaned
+            </span>
+          )}
           {job.reasoning_format && (
             <span
               className="inline-flex items-center gap-1 rounded-full border border-transparent bg-accent-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary"
               title={
                 job.reasoning_format === 'inline'
                   ? 'Reasoning prose injected into <think> blocks at export'
-                  : 'Reasoning prose exported as a top-level field'
+                  : job.reasoning_format === 'reasoning_content'
+                    ? 'Exported as messages with a per-assistant reasoning_content field'
+                    : 'Reasoning prose exported as a top-level field'
               }
             >
               <Sparkles className="size-3" />
@@ -283,7 +297,7 @@ function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, 
             </Button>
           </Link>
         )}
-        {job.status === 'completed' && job.completed > 0 && !job.reasoning_format && !job.parent_job_id && (
+        {job.status === 'completed' && job.completed > 0 && !job.reasoning_format && (
           <Button
             variant="outline"
             size="sm"
@@ -295,6 +309,21 @@ function JobRow({ job, onDelete, deletingId, deletingProgress, openingFolderId, 
               <><Loader2 className="size-3.5 animate-spin" /> Starting…</>
             ) : (
               <><Sparkles className="size-3.5" /> Add Reasoning</>
+            )}
+          </Button>
+        )}
+        {job.status === 'completed' && job.completed > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onAddCleanup(job)}
+            disabled={cleanupStartingId === job.id}
+            title="Run the cleanup stage over every example — the result lands in a new dataset"
+          >
+            {cleanupStartingId === job.id ? (
+              <><Loader2 className="size-3.5 animate-spin" /> Starting…</>
+            ) : (
+              <><Wand2 className="size-3.5" /> Add Cleanup</>
             )}
           </Button>
         )}
@@ -406,6 +435,8 @@ export default function HistoryPage() {
   const [reasoningSourceJob, setReasoningSourceJob] = useState<JobListItem | null>(null)
   const [reasoningSourceCategories, setReasoningSourceCategories] = useState<string[]>([])
   const [reasoningStartingId, setReasoningStartingId] = useState<string | null>(null)
+  const [cleanupSourceJob, setCleanupSourceJob] = useState<JobListItem | null>(null)
+  const [cleanupStartingId, setCleanupStartingId] = useState<string | null>(null)
   const [metadataAddingId, setMetadataAddingId] = useState<string | null>(null)
   const [metadataResult, setMetadataResult] = useState<
     | { jobId: string; mode: 'pywebview'; path: string }
@@ -649,6 +680,27 @@ export default function HistoryPage() {
       })
     } finally {
       setMetadataAddingId(null)
+    }
+  }
+
+  function handleAddCleanupClick(job: JobListItem) {
+    // Unlike reasoning, the dialog needs no per-category data — one model
+    // cleans the whole dataset, so there is nothing to fetch up front.
+    setCleanupSourceJob(job)
+  }
+
+  async function handleCleanupSubmit(req: CleanupJobRequest) {
+    if (!cleanupSourceJob) return
+    setCleanupStartingId(cleanupSourceJob.id)
+    try {
+      const result = await addCleanup(cleanupSourceJob.id, req)
+      // Same hand-off as reasoning: watch the pass live on the generator
+      // dashboard, where SSE surfaces stage + activity log.
+      sessionStorage.setItem('activeJobId', result.job_id)
+      setCleanupSourceJob(null)
+      router.push('/')
+    } finally {
+      setCleanupStartingId(null)
     }
   }
 
@@ -949,6 +1001,8 @@ export default function HistoryPage() {
                 onToggle={handleToggle}
                 onAddReasoning={handleAddReasoningClick}
                 reasoningStartingId={reasoningStartingId}
+                onAddCleanup={handleAddCleanupClick}
+                cleanupStartingId={cleanupStartingId}
                 onAddMetadata={handleAddMetadata}
                 metadataAddingId={metadataAddingId}
               />
@@ -965,6 +1019,16 @@ export default function HistoryPage() {
           onClose={() => setUploadJobId(null)}
           jobId={uploadJobId}
           hasHfToken={hasHfToken}
+        />
+      )}
+
+      {/* Add Cleanup dialog */}
+      {cleanupSourceJob && (
+        <AddCleanupDialog
+          open
+          sourceJob={cleanupSourceJob}
+          onClose={() => setCleanupSourceJob(null)}
+          onSubmit={handleCleanupSubmit}
         />
       )}
 

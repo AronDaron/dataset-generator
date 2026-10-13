@@ -1,13 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { SliderField } from '@/components/ui/slider'
 import { SelectField, type SelectOption } from '@/components/ui/select'
 import type { Category } from '@/lib/proportions'
-import { getModelEndpoints } from '@/lib/api'
+import { useProviderOptions } from '@/hooks/useProviderOptions'
 import { CATEGORY_COLORS, CATEGORY_COLOR_HEX } from './CategoryList'
 
 interface CategoryCardProps {
@@ -17,6 +16,7 @@ interface CategoryCardProps {
   canRemove: boolean
   modelOptions?: SelectOption[]
   judgeEnabled?: boolean
+  cleanupEnabled?: boolean
   onUpdate: (id: string, patch: Partial<Omit<Category, 'id'>>) => void
   onRemove: (id: string) => void
   onProportionChange: (id: string, value: number) => void
@@ -24,6 +24,7 @@ interface CategoryCardProps {
 
 const USE_GLOBAL_OPTION: SelectOption = { value: '', label: '— Global model —' }
 const USE_GLOBAL_JUDGE_OPTION: SelectOption = { value: '', label: '— Global judge —' }
+const USE_GLOBAL_CLEANUP_OPTION: SelectOption = { value: '', label: '— Global cleanup —' }
 const AUTO_PROVIDER_OPTION: SelectOption = { value: '', label: '— Auto —' }
 
 export function CategoryCard({
@@ -33,6 +34,7 @@ export function CategoryCard({
   canRemove,
   modelOptions = [],
   judgeEnabled = false,
+  cleanupEnabled = false,
   onUpdate,
   onRemove,
   onProportionChange,
@@ -40,90 +42,12 @@ export function CategoryCard({
   const maxProportion = 100 - (totalCategories - 1)
   const colorHex = CATEGORY_COLOR_HEX[index % CATEGORY_COLOR_HEX.length]
 
-  const [providerOptions, setProviderOptions] = useState<SelectOption[]>([])
-  const [loadingProviders, setLoadingProviders] = useState(false)
-  const [judgeProviderOptions, setJudgeProviderOptions] = useState<SelectOption[]>([])
-  const [loadingJudgeProviders, setLoadingJudgeProviders] = useState(false)
-
-  useEffect(() => {
-    const modelId = category.model
-    if (!modelId) {
-      setProviderOptions([])
-      return
-    }
-    let cancelled = false
-    setLoadingProviders(true)
-    getModelEndpoints(modelId)
-      .then((endpoints) => {
-        if (cancelled) return
-        const seen = new Set<string>()
-        const opts: SelectOption[] = endpoints
-          .filter((e) => {
-            const key = e.provider_name || e.name
-            if (!key || seen.has(key)) return false
-            seen.add(key)
-            return true
-          })
-          .map((e) => {
-            const routingName = e.provider_name || e.name
-            const parts: string[] = [routingName]
-            if (e.latency != null) parts.push(`${Math.round(e.latency)}ms`)
-            if (e.uptime_last_30m != null)
-              parts.push(`${e.uptime_last_30m.toFixed(1)}% up`)
-            return { value: routingName, label: parts.join(' · ') }
-          })
-        setProviderOptions(opts)
-      })
-      .catch(() => {
-        if (!cancelled) setProviderOptions([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingProviders(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [category.model])
-
-  useEffect(() => {
-    const modelId = category.judgeModel
-    if (!modelId) {
-      setJudgeProviderOptions([])
-      return
-    }
-    let cancelled = false
-    setLoadingJudgeProviders(true)
-    getModelEndpoints(modelId)
-      .then((endpoints) => {
-        if (cancelled) return
-        const seen = new Set<string>()
-        const opts: SelectOption[] = endpoints
-          .filter((e) => {
-            const key = e.provider_name || e.name
-            if (!key || seen.has(key)) return false
-            seen.add(key)
-            return true
-          })
-          .map((e) => {
-            const routingName = e.provider_name || e.name
-            const parts: string[] = [routingName]
-            if (e.latency != null) parts.push(`${Math.round(e.latency)}ms`)
-            if (e.uptime_last_30m != null)
-              parts.push(`${e.uptime_last_30m.toFixed(1)}% up`)
-            return { value: routingName, label: parts.join(' · ') }
-          })
-        setJudgeProviderOptions(opts)
-      })
-      .catch(() => {
-        if (!cancelled) setJudgeProviderOptions([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingJudgeProviders(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [category.judgeModel])
+  const { options: providerOptions, loading: loadingProviders } =
+    useProviderOptions(category.model)
+  const { options: judgeProviderOptions, loading: loadingJudgeProviders } =
+    useProviderOptions(category.judgeModel)
+  const { options: cleanupProviderOptions, loading: loadingCleanupProviders } =
+    useProviderOptions(category.cleanupModel)
 
   function handleModelChange(val: string) {
     onUpdate(category.id, { model: val || undefined, provider: undefined })
@@ -141,6 +65,14 @@ export function CategoryCard({
     onUpdate(category.id, { judgeProvider: val || undefined })
   }
 
+  function handleCleanupModelChange(val: string) {
+    onUpdate(category.id, { cleanupModel: val || undefined, cleanupProvider: undefined })
+  }
+
+  function handleCleanupProviderChange(val: string) {
+    onUpdate(category.id, { cleanupProvider: val || undefined })
+  }
+
   const modelSelectOptions: SelectOption[] =
     modelOptions.length > 0 ? [USE_GLOBAL_OPTION, ...modelOptions] : []
 
@@ -152,6 +84,12 @@ export function CategoryCard({
 
   const judgeProviderSelectOptions: SelectOption[] =
     judgeProviderOptions.length > 0 ? [AUTO_PROVIDER_OPTION, ...judgeProviderOptions] : []
+
+  const cleanupModelSelectOptions: SelectOption[] =
+    modelOptions.length > 0 ? [USE_GLOBAL_CLEANUP_OPTION, ...modelOptions] : []
+
+  const cleanupProviderSelectOptions: SelectOption[] =
+    cleanupProviderOptions.length > 0 ? [AUTO_PROVIDER_OPTION, ...cleanupProviderOptions] : []
 
   return (
     <Card
@@ -217,6 +155,37 @@ export function CategoryCard({
               ) : (
                 <div className="flex h-[34px] items-center rounded-lg border border-border bg-muted/40 px-3 text-xs text-text-4 select-none">
                   select model first
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Cleanup model + provider (only when cleanup is enabled globally) */}
+        {cleanupEnabled && cleanupModelSelectOptions.length > 0 && (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="min-w-0 space-y-1">
+              <p className="text-[11px] uppercase tracking-widest font-medium text-text-3">Cleanup model</p>
+              <SelectField
+                value={category.cleanupModel ?? ''}
+                onChange={handleCleanupModelChange}
+                options={cleanupModelSelectOptions}
+                placeholder="Global cleanup"
+              />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <p className="text-[11px] uppercase tracking-widest font-medium text-text-3">Cleanup provider</p>
+              {category.cleanupModel ? (
+                <SelectField
+                  value={category.cleanupProvider ?? ''}
+                  onChange={handleCleanupProviderChange}
+                  options={cleanupProviderSelectOptions}
+                  placeholder="Auto"
+                  isLoading={loadingCleanupProviders}
+                />
+              ) : (
+                <div className="flex h-[34px] select-none items-center rounded-lg border border-border bg-muted/40 px-3 text-xs text-text-4">
+                  select cleanup model first
                 </div>
               )}
             </div>

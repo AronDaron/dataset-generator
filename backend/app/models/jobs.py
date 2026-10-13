@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.services.prompt_builder import DEFAULT_CLEANUP_RULES
+
 
 class CategoryConfig(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
@@ -19,6 +21,13 @@ class CategoryConfig(BaseModel):
     judge_provider_id: str | None = None
     judge_prompt_price: float = 0.0
     judge_completion_price: float = 0.0
+    # Cleanup stage (generation -> cleanup -> judge). Mirrors the judge block:
+    # None means "fall back to the job-level cleanup settings".
+    cleanup_model: str | None = None
+    cleanup_provider: str | None = None
+    cleanup_provider_id: str | None = None
+    cleanup_prompt_price: float = 0.0
+    cleanup_completion_price: float = 0.0
 
 
 class JobConfig(BaseModel):
@@ -46,6 +55,16 @@ class JobConfig(BaseModel):
     judge_provider: str | None = None
     provider_id: str | None = None  # default LLM provider for this job
     judge_provider_id: str | None = None  # default judge LLM provider for this job
+    # Cleanup stage. `cleanup_enabled` is a per-run switch owned by the
+    # generator draft on the frontend (like `temperature`), NOT a global
+    # setting — closing the settings dialog must not flip it.
+    cleanup_enabled: bool = False
+    cleanup_model: Optional[str] = None
+    cleanup_rules: str = Field(default=DEFAULT_CLEANUP_RULES)
+    cleanup_provider: str | None = None
+    cleanup_provider_id: str | None = None
+    cleanup_prompt_price: float = 0.0
+    cleanup_completion_price: float = 0.0
 
     @model_validator(mode="after")
     def proportions_sum_to_one(self) -> "JobConfig":
@@ -74,6 +93,28 @@ class JudgeStats(BaseModel):
     avg_score: float | None = None
 
 
+class CleanupStats(BaseModel):
+    """Outcome tally of the cleanup stage, aggregated over the whole job.
+
+    Cleanup never rejects an example, so none of these counters shrinks the
+    dataset — they only describe what the stage did to the content.
+    """
+
+    # Examples that entered the stage (the denominator for the rest).
+    processed: int = 0
+    # Examples whose content actually changed.
+    modified: int = 0
+    # Examples the model returned verbatim — nothing to fix.
+    unchanged: int = 0
+    # Examples where at least one slot was rolled back by an acceptance gate.
+    # Not exclusive with `modified`: other slots of the same example may have
+    # been cleaned successfully.
+    reverted: int = 0
+    # Examples where the stage could not run at all (API error or broken
+    # response contract). The original content is kept.
+    failed: int = 0
+
+
 class ProgressJson(BaseModel):
     total_examples: int
     completed: int
@@ -93,12 +134,18 @@ class ProgressJson(BaseModel):
         "reasoning_generating",
         "reasoning_exporting",
         "reasoning_computing_stats",
+        "cleanup_copying",
+        "cleanup_processing",
+        "cleanup_exporting",
+        "cleanup_computing_stats",
     ]
     current_category: Optional[str] = None
     categories: Dict[str, CategoryProgress]
     judge_stats: Optional[JudgeStats] = None
+    cleanup_stats: Optional[CleanupStats] = None
     actual_cost: Optional[float] = None
     judge_cost: Optional[float] = None
+    cleanup_cost: Optional[float] = None
     reasoning_cost: Optional[float] = None
 
 
@@ -110,7 +157,7 @@ class JobResponse(BaseModel):
     created_at: str
     updated_at: str
     parent_job_id: Optional[str] = None
-    reasoning_format: Optional[Literal["inline", "separate"]] = None
+    reasoning_format: Optional[Literal["inline", "separate", "reasoning_content"]] = None
 
 
 class JobListItem(BaseModel):
@@ -126,8 +173,11 @@ class JobListItem(BaseModel):
     actual_cost: float | None = None
     judge_cost: float | None = None
     is_merged: bool = False
+    # True for a cleanup post-process pass (a cleaned copy of another
+    # dataset). Derived from the config marker, not a column.
+    is_cleanup_post: bool = False
     parent_job_id: str | None = None
-    reasoning_format: Literal["inline", "separate"] | None = None
+    reasoning_format: Literal["inline", "separate", "reasoning_content"] | None = None
     reasoning_models: List[str] = Field(default_factory=list)
 
 
@@ -159,6 +209,19 @@ class ExampleResponse(BaseModel):
 
 class DuplicateRequest(BaseModel):
     threshold: float = Field(default=0.85, ge=0.5, le=1.0)
+
+
+class BulkDeleteExamplesRequest(BaseModel):
+    # Examples to delete from this job (dedup's "Remove all lower-scored").
+    # IDs that are unknown or belong to another job are skipped, not an
+    # error — a duplicate list scanned before another delete can go stale.
+    # Upper bound matches JobConfig.total_examples.
+    example_ids: List[str] = Field(..., min_length=1, max_length=500_000)
+
+
+class BulkDeleteExamplesResponse(BaseModel):
+    deleted: int
+    remaining: int
 
 
 class DuplicatePairResponse(BaseModel):
@@ -288,19 +351,73 @@ class ReasoningCategoryConfig(BaseModel):
 class ReasoningRequest(BaseModel):
     # Inline = `<think>...</think>` injected at the start of the first assistant
     # turn at export time. Separate = top-level `reasoning` field in JSONL.
-    # Chosen per-pass and frozen on the job; merge rejects mixed formats.
-    format: Literal["inline", "separate"]
+    # reasoning_content = OpenAI-style `messages` with a per-assistant-message
+    # `reasoning_content` field (what Gemma 4 / Qwen 3.5+ templates render as
+    # their thought channel). Chosen per-pass and frozen on the job; merge
+    # rejects mixed formats.
+    format: Literal["inline", "separate", "reasoning_content"]
     # One entry per source category — every category must be covered. Schema
     # enforces 1..64 to match JobConfig.categories.
     categories: List[ReasoningCategoryConfig] = Field(..., min_length=1, max_length=64)
     temperature: float = Field(default=0.5, ge=0.0, le=1.5)
-    # Reasoning prose targets 50-150 tokens; bump default to 512 to leave
-    # headroom for reasoning-capable models that burn budget on <think> blocks
-    # before the kept content lands.
-    max_tokens: int = Field(default=512, ge=128, le=2048)
+    # None (default) = no budget of our own; the call only carries the
+    # runaway guard (reasoning_service.REASONING_RUNAWAY_TOKEN_GUARD, 32k).
+    # Thinking models spend a model- and example-dependent share of any cap
+    # on their thought channel (gemma-4-26B-A4B: ~6k tokens before 1.3k chars
+    # of prose), so a tight cap only ever starves them. Prose length is
+    # bounded by the prompt and the prose validator instead. Kept optional
+    # for callers that do want a specific hard stop.
+    max_tokens: Optional[int] = Field(default=None, ge=1024, le=65536)
 
 
 class ReasoningResponse(BaseModel):
+    job_id: str
+    parent_job_id: str
+    total_examples: int
+
+
+# ---- Cleanup post-process ----
+
+
+class CleanupCategoryOverride(BaseModel):
+    """Optional per-category override of the job-level cleanup model.
+
+    Only the fields that are set override the request defaults, so a caller
+    that wants one model everywhere sends no overrides at all. Mirrors how
+    ``CategoryConfig.cleanup_*`` overrides ``JobConfig.cleanup_*`` in the
+    inline pipeline.
+    """
+
+    name: str = Field(..., min_length=1, max_length=100)
+    model: str | None = Field(default=None, max_length=200)
+    provider_id: str | None = None
+    # OpenRouter-style routing string ("DeepSeek", "Anthropic"). Ignored by
+    # backends whose `capabilities.supports_provider_routing` is False.
+    provider_route: str | None = None
+
+
+class CleanupJobRequest(BaseModel):
+    """Body of POST /api/jobs/{id}/add-cleanup.
+
+    There is no ``max_tokens`` field on purpose: the per-call budget is
+    derived from the payload by ``prompt_builder.cleanup_max_tokens`` and is
+    deliberately not capped by a user value (a reasoning model spends the same
+    completion budget on its thinking block as on the answer, and cleanup only
+    ever echoes back text that already exists).
+    """
+
+    model: str = Field(..., min_length=1, max_length=200)
+    provider_id: str = Field(..., min_length=1)
+    provider_route: str | None = None
+    cleanup_rules: str = Field(default=DEFAULT_CLEANUP_RULES, min_length=1)
+    # Per-1-token prices of the cleanup model, used to fill in
+    # `progress.cleanup_cost`. 0.0 (local backends) simply reports no spend.
+    prompt_price: float = Field(default=0.0, ge=0.0)
+    completion_price: float = Field(default=0.0, ge=0.0)
+    categories: List[CleanupCategoryOverride] = Field(default_factory=list, max_length=64)
+
+
+class CleanupJobResponse(BaseModel):
     job_id: str
     parent_job_id: str
     total_examples: int

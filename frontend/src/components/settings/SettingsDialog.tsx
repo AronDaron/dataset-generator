@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Dialog } from '@base-ui/react/dialog'
-import { X, Key, Cpu, Scale, Layers } from 'lucide-react'
+import { X, Key, Cpu, Sparkles, Scale, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { HfTokenSection } from './HfTokenSection'
 import { ProvidersSection } from './ProvidersSection'
@@ -11,11 +11,12 @@ import { SelectField, type SelectOption } from '@/components/ui/select'
 import { getApiKey, getHfToken, getConfig, putConfig, getEmbeddingModels } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-type SettingsTab = 'providers' | 'generation' | 'judge' | 'dedup'
+type SettingsTab = 'providers' | 'generation' | 'cleanup' | 'judge' | 'dedup'
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: 'providers', label: 'Providers', icon: <Key className="size-4" /> },
   { id: 'generation', label: 'Generation', icon: <Cpu className="size-4" /> },
+  { id: 'cleanup', label: 'Cleanup', icon: <Sparkles className="size-4" /> },
   { id: 'judge', label: 'LLM Judge', icon: <Scale className="size-4" /> },
   { id: 'dedup', label: 'Dedup', icon: <Layers className="size-4" /> },
 ]
@@ -52,6 +53,9 @@ export function SettingsDialog({
   const [retryCount, setRetryCount] = useState(3)
   const [retryCooldown, setRetryCooldown] = useState(15)
   const [localModel, setLocalModel] = useState(model)
+  const [cleanupModel, setCleanupModel] = useState('')
+  const [cleanupRules, setCleanupRules] = useState('')
+  const [cleanupProvider, setCleanupProvider] = useState('')
   const [judgeEnabled, setJudgeEnabled] = useState(false)
   const [judgeModel, setJudgeModel] = useState('')
   const [judgeThreshold, setJudgeThreshold] = useState(80)
@@ -84,6 +88,9 @@ export function SettingsDialog({
         setJudgeModel(config.judge_model)
         setJudgeThreshold(config.judge_threshold)
         setJudgeCriteria(config.judge_criteria)
+        setCleanupModel(config.cleanup_model ?? '')
+        setCleanupRules(config.cleanup_rules ?? '')
+        setCleanupProvider(config.cleanup_provider ?? '')
         if (config.embedding_model) setEmbeddingModel(config.embedding_model)
         if (config.default_model && !model) {
           setLocalModel(config.default_model)
@@ -119,6 +126,9 @@ export function SettingsDialog({
         judge_threshold: judgeThreshold,
         judge_criteria: judgeCriteria,
         judge_provider: judgeProvider,
+        cleanup_model: cleanupModel,
+        cleanup_rules: cleanupRules,
+        cleanup_provider: cleanupProvider,
         embedding_model: embeddingModel,
       })
       onModelChange(localModel)
@@ -143,8 +153,8 @@ export function SettingsDialog({
         />
         <Dialog.Popup
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 w-full max-w-2xl -translate-x-1/2 -translate-y-1/2',
-            'max-h-[90vh] overflow-hidden',
+            'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
+            'w-[min(56rem,calc(100vw-2rem))] h-[min(680px,calc(100vh-4rem))] overflow-hidden',
             'rounded-xl border border-border bg-card shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7),0_8px_20px_rgba(0,0,0,0.35)]',
             'flex flex-col',
           )}
@@ -211,6 +221,43 @@ export function SettingsDialog({
                   onDelayChange={setDelay}
                   onRetryChange={setRetryCount}
                   hasApiKey={hasKey}
+                  cleanupModel={cleanupModel}
+                  cleanupRules={cleanupRules}
+                  cleanupProvider={cleanupProvider}
+                  onCleanupModelChange={setCleanupModel}
+                  onCleanupRulesChange={setCleanupRules}
+                  onCleanupProviderChange={setCleanupProvider}
+                  judgeEnabled={judgeEnabled}
+                  judgeModel={judgeModel}
+                  judgeThreshold={judgeThreshold}
+                  judgeCriteria={judgeCriteria}
+                  judgeProvider={judgeProvider}
+                  onJudgeEnabledChange={setJudgeEnabled}
+                  onJudgeModelChange={setJudgeModel}
+                  onJudgeThresholdChange={setJudgeThreshold}
+                  onJudgeCriteriaChange={setJudgeCriteria}
+                  onJudgeProviderChange={setJudgeProvider}
+                  onModelPricingChange={onModelPricingChange}
+                  onJudgePricingChange={onJudgePricingChange}
+                />
+              )}
+
+              {activeTab === 'cleanup' && (
+                <ConfigSection
+                  section="cleanup"
+                  model={localModel}
+                  delay={delay}
+                  retryCount={retryCount}
+                  onModelChange={setLocalModel}
+                  onDelayChange={setDelay}
+                  onRetryChange={setRetryCount}
+                  hasApiKey={hasKey}
+                  cleanupModel={cleanupModel}
+                  cleanupRules={cleanupRules}
+                  cleanupProvider={cleanupProvider}
+                  onCleanupModelChange={setCleanupModel}
+                  onCleanupRulesChange={setCleanupRules}
+                  onCleanupProviderChange={setCleanupProvider}
                   judgeEnabled={judgeEnabled}
                   judgeModel={judgeModel}
                   judgeThreshold={judgeThreshold}
@@ -236,6 +283,12 @@ export function SettingsDialog({
                   onDelayChange={setDelay}
                   onRetryChange={setRetryCount}
                   hasApiKey={hasKey}
+                  cleanupModel={cleanupModel}
+                  cleanupRules={cleanupRules}
+                  cleanupProvider={cleanupProvider}
+                  onCleanupModelChange={setCleanupModel}
+                  onCleanupRulesChange={setCleanupRules}
+                  onCleanupProviderChange={setCleanupProvider}
                   judgeEnabled={judgeEnabled}
                   judgeModel={judgeModel}
                   judgeThreshold={judgeThreshold}

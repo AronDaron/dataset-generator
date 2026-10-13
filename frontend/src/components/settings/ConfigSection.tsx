@@ -1,14 +1,15 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { SelectField, type SelectOption } from '@/components/ui/select'
+import { SelectField } from '@/components/ui/select'
 import { SliderField } from '@/components/ui/slider'
-import { getModels, getModelEndpoints, type ModelOption } from '@/lib/api'
+import { getModels, type ModelOption } from '@/lib/api'
+import { useProviderOptions } from '@/hooks/useProviderOptions'
 import { toGroupedOptions } from '@/lib/model-utils'
 import { cn } from '@/lib/utils'
 
 interface ConfigSectionProps {
-  section?: 'all' | 'generation' | 'judge'
+  section?: 'all' | 'generation' | 'cleanup' | 'judge'
   model: string
   delay: number
   retryCount: number
@@ -16,6 +17,12 @@ interface ConfigSectionProps {
   onDelayChange: (delay: number) => void
   onRetryChange: (retry: number) => void
   hasApiKey: boolean
+  cleanupModel: string
+  cleanupRules: string
+  cleanupProvider: string
+  onCleanupModelChange: (model: string) => void
+  onCleanupRulesChange: (rules: string) => void
+  onCleanupProviderChange: (provider: string) => void
   judgeEnabled: boolean
   judgeModel: string
   judgeThreshold: number
@@ -50,6 +57,12 @@ export function ConfigSection({
   onDelayChange,
   onRetryChange,
   hasApiKey,
+  cleanupModel,
+  cleanupRules,
+  cleanupProvider,
+  onCleanupModelChange,
+  onCleanupRulesChange,
+  onCleanupProviderChange,
   judgeEnabled,
   judgeModel,
   judgeThreshold,
@@ -66,8 +79,10 @@ export function ConfigSection({
   const [modelList, setModelList] = useState<ModelOption[]>([])
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelsError, setModelsError] = useState<string | null>(null)
-  const [judgeProviderOptions, setJudgeProviderOptions] = useState<SelectOption[]>([])
-  const [loadingJudgeProviders, setLoadingJudgeProviders] = useState(false)
+  const { options: judgeProviderOptions, loading: loadingJudgeProviders } =
+    useProviderOptions(judgeModel)
+  const { options: cleanupProviderOptions, loading: loadingCleanupProviders } =
+    useProviderOptions(cleanupModel)
 
   useEffect(() => {
     if (!hasApiKey) return
@@ -90,42 +105,19 @@ export function ConfigSection({
     onModelPricingChange?.(modelList.find((m) => m.id === value)?.pricing)
   }
 
-  useEffect(() => {
-    if (!judgeModel) { setJudgeProviderOptions([]); return }
-    let cancelled = false
-    setLoadingJudgeProviders(true)
-    getModelEndpoints(judgeModel)
-      .then((endpoints) => {
-        if (cancelled) return
-        const seen = new Set<string>()
-        const opts: SelectOption[] = endpoints
-          .filter((e) => {
-            const key = e.provider_name || e.name
-            if (!key || seen.has(key)) return false
-            seen.add(key)
-            return true
-          })
-          .map((e) => {
-            const routingName = e.provider_name || e.name
-            const parts: string[] = [routingName]
-            if (e.latency != null) parts.push(`${Math.round(e.latency)}ms`)
-            if (e.uptime_last_30m != null) parts.push(`${e.uptime_last_30m.toFixed(1)}% up`)
-            return { value: routingName, label: parts.join(' · ') }
-          })
-        setJudgeProviderOptions(opts)
-      })
-      .catch(() => { if (!cancelled) setJudgeProviderOptions([]) })
-      .finally(() => { if (!cancelled) setLoadingJudgeProviders(false) })
-    return () => { cancelled = true }
-  }, [judgeModel])
-
   const handleJudgeModelChange = (value: string) => {
     onJudgeModelChange(value)
     onJudgePricingChange?.(modelList.find((m) => m.id === value)?.pricing)
     onJudgeProviderChange('')
   }
 
+  const handleCleanupModelChange = (value: string) => {
+    onCleanupModelChange(value)
+    onCleanupProviderChange('')
+  }
+
   const showGeneration = section === 'all' || section === 'generation'
+  const showCleanup = section === 'all' || section === 'cleanup'
   const showJudge = section === 'all' || section === 'judge'
 
   return (
@@ -189,7 +181,71 @@ export function ConfigSection({
       )}
 
       {/* Divider */}
-      {showGeneration && showJudge && <div className="border-t border-border" />}
+      {showGeneration && showCleanup && <div className="border-t border-border" />}
+
+      {/* ── Cleanup ───────────────────────── */}
+      {showCleanup && (
+      <div className="space-y-3.5">
+        <div>
+          <SectionLabel>Cleanup</SectionLabel>
+          <p className="mt-0.5 text-xs text-text-3">
+            Enable it per run in Parameters · additional API cost applies
+          </p>
+        </div>
+
+        {/* Cleanup model + provider — side by side */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="min-w-0 space-y-1.5">
+            <label className={FIELD_LABEL}>Cleanup model</label>
+            {!hasApiKey ? (
+              <p className="text-xs text-text-3">API key required</p>
+            ) : (
+              <SelectField
+                value={cleanupModel}
+                onChange={handleCleanupModelChange}
+                options={modelOptions}
+                placeholder="Gen model"
+                isLoading={loadingModels}
+              />
+            )}
+          </div>
+          <div className="min-w-0 space-y-1.5">
+            <label className={FIELD_LABEL}>Provider</label>
+            {cleanupModel ? (
+              <SelectField
+                value={cleanupProvider}
+                onChange={(val) => onCleanupProviderChange(val || '')}
+                options={[{ value: '', label: '— Auto —' }, ...cleanupProviderOptions]}
+                placeholder="— Auto —"
+                isLoading={loadingCleanupProviders}
+              />
+            ) : (
+              <div className="flex h-[34px] select-none items-center rounded-lg border border-border bg-muted/40 px-3 text-xs text-text-4">
+                select model first
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Rules */}
+        <div className="space-y-1.5">
+          <label className={FIELD_LABEL}>Cleanup rules</label>
+          <textarea
+            value={cleanupRules}
+            onChange={(e) => onCleanupRulesChange(e.target.value)}
+            rows={8}
+            placeholder={'Remove LaTeX delimiters\nClose every unterminated code fence\nStrip emoji'}
+            className={cn(INPUT_CLS, 'resize-y py-2')}
+          />
+          <p className="text-xs text-text-3">
+            One rule per line — sent to the cleanup model
+          </p>
+        </div>
+      </div>
+      )}
+
+      {/* Divider */}
+      {showCleanup && showJudge && <div className="border-t border-border" />}
 
       {/* ── LLM Judge ───────────────────────────────── */}
       {showJudge && (

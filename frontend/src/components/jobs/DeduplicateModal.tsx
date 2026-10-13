@@ -17,6 +17,7 @@ import { FormattedContent } from '@/components/ui/formatted-content'
 import {
   findDuplicates,
   deleteExample,
+  deleteExamplesBulk,
   type DuplicatePair,
 } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -262,6 +263,12 @@ export function DeduplicateModal({
   const [errorMessage, setErrorMessage] = useState('')
   const [expandedPairs, setExpandedPairs] = useState<Set<number>>(new Set())
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  // "Remove all lower-scored" feedback: how many are being deleted (button
+  // label while the request runs) and the outcome line shown afterwards.
+  const [bulkCount, setBulkCount] = useState(0)
+  const [bulkNotice, setBulkNotice] = useState<{ tone: 'ok' | 'info'; text: string } | null>(
+    null,
+  )
 
   function handleClose() {
     onClose()
@@ -272,11 +279,13 @@ export function DeduplicateModal({
       setErrorMessage('')
       setExpandedPairs(new Set())
       setDeletingId(null)
+      setBulkNotice(null)
     }, 200)
   }
 
   async function handleScan() {
     setState('scanning')
+    setBulkNotice(null)
     try {
       const res = await findDuplicates(jobId, threshold)
       setPairs(res.pairs)
@@ -315,20 +324,30 @@ export function DeduplicateModal({
       }
     }
     const unique = [...new Set(toDelete)]
-    if (unique.length === 0) return
+    if (unique.length === 0) {
+      setBulkNotice({
+        tone: 'info',
+        text: 'Nothing to remove — the remaining pairs have equal judge scores. Use Delete on a pair to pick one.',
+      })
+      return
+    }
     if (!window.confirm(`Delete ${unique.length} lower-scored example(s)?`)) return
 
     setDeletingId('bulk')
+    setBulkCount(unique.length)
+    setBulkNotice(null)
     try {
-      for (const id of unique) {
-        await deleteExample(jobId, id)
-      }
+      // One request: the backend deletes everything and re-exports the JSONL
+      // once, instead of one request + full re-export per example.
+      const res = await deleteExamplesBulk(jobId, unique)
+      const gone = new Set(unique)
       setPairs((prev) =>
-        prev.filter(
-          (p) =>
-            !unique.includes(p.example_id_a) && !unique.includes(p.example_id_b),
-        ),
+        prev.filter((p) => !gone.has(p.example_id_a) && !gone.has(p.example_id_b)),
       )
+      setBulkNotice({
+        tone: 'ok',
+        text: `Deleted ${res.deleted} example${res.deleted === 1 ? '' : 's'} · ${res.remaining} left in the dataset`,
+      })
       onExamplesChanged()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Bulk delete failed')
@@ -476,19 +495,43 @@ export function DeduplicateModal({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between border-t border-border px-6 py-4">
-            <div>
+          <div className="flex items-center justify-between gap-4 border-t border-border px-6 py-4">
+            <div className="flex min-w-0 items-center gap-3">
               {state === 'results' && pairs.length > 0 && hasJudgeScores && (
                 <Button
                   variant="destructive"
                   size="sm"
-                  className="gap-1.5"
+                  className="shrink-0 gap-1.5"
                   onClick={handleRemoveAllLowerScored}
                   disabled={deletingId != null}
                 >
-                  <Zap className="size-3.5" />
-                  Remove all lower-scored
+                  {deletingId === 'bulk' ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin" />
+                      Deleting {bulkCount}…
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="size-3.5" />
+                      Remove all lower-scored
+                    </>
+                  )}
                 </Button>
+              )}
+              {state === 'results' && bulkNotice && (
+                <span
+                  className={cn(
+                    'flex items-start gap-1.5 text-xs leading-snug',
+                    bulkNotice.tone === 'ok' ? 'text-ok' : 'text-text-3',
+                  )}
+                >
+                  {bulkNotice.tone === 'ok' ? (
+                    <CheckCircle2 className="mt-px size-3.5 shrink-0" />
+                  ) : (
+                    <AlertCircle className="mt-px size-3.5 shrink-0" />
+                  )}
+                  {bulkNotice.text}
+                </span>
               )}
             </div>
             <div className="flex items-center gap-2">

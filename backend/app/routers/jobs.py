@@ -17,8 +17,12 @@ from app.database import get_db
 from app.utils import now_iso as _now_iso
 
 from app.models.jobs import (
+    BulkDeleteExamplesRequest,
+    BulkDeleteExamplesResponse,
     CategoryProgress,
     CategoryRunInfo,
+    CleanupJobRequest,
+    CleanupJobResponse,
     DuplicateRequest,
     DuplicatesResponse,
     ExampleResponse,
@@ -32,6 +36,7 @@ from app.models.jobs import (
     ResumableJobsResponse,
     RunSummary,
 )
+from app.services.cleanup_post_service import is_cleanup_post_config
 from app.services.dedup_service import find_duplicates
 from app.services.example_schema import _parse_reasoning as _decode_reasoning
 from app.services.embedding_service import resolve_embedding_provider_id
@@ -282,6 +287,7 @@ def _row_to_list_item(
         actual_cost=actual_cost,
         judge_cost=judge_cost,
         is_merged=is_merged,
+        is_cleanup_post=is_cleanup_post_config(raw_cfg),
         parent_job_id=parent_job_id,
         reasoning_format=reasoning_format,
         reasoning_models=reasoning_models,
@@ -330,13 +336,18 @@ async def create_job(
         "retry_cooldown": resolved_retry_cooldown,
     })
 
-    # Resolve every (gen, judge) provider this job will need up front. We check
-    # each one is enabled now so the API rejects the request with a useful 422
-    # instead of silently spawning a background task that will explode in
-    # _resolve_category_providers a few hundred ms later.
+    # Resolve every (gen, cleanup, judge) provider this job will need up front.
+    # We check each one is enabled now so the API rejects the request with a
+    # useful 422 instead of silently spawning a background task that will
+    # explode in _resolve_category_providers a few hundred ms later.
     required_pids: set[str | None] = set()
     for cat in config.categories:
         required_pids.add(cat.provider_id or config.provider_id)
+        if config.cleanup_enabled:
+            required_pids.add(
+                cat.cleanup_provider_id or config.cleanup_provider_id
+                or cat.provider_id or config.provider_id
+            )
         if config.judge_enabled:
             required_pids.add(
                 cat.judge_provider_id or config.judge_provider_id
@@ -457,6 +468,21 @@ async def resume_job_endpoint(
             detail=f"Job is {row['status']}, only interrupted, cancelled, or failed jobs can be resumed",
         )
 
+    # A cleanup post-process job is a copy of someone else's dataset, not a
+    # generation run — resuming it down the gen path would regenerate examples
+    # from its inherited config and produce a completely different dataset.
+    # There is no per-row "already cleaned" marker to resume from either (the
+    # stage rewrites content in place), so the honest answer is: delete it and
+    # run the pass again.
+    if is_cleanup_post_config(_raw_config(row)):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cleanup post-process jobs cannot be resumed — "
+                "delete this job and start a new cleanup pass from the source dataset"
+            ),
+        )
+
     is_reasoning_job = (
         row["reasoning_format"] is not None and row["parent_job_id"] is not None
     )
@@ -528,6 +554,17 @@ async def resume_job_endpoint(
     for cat in config.categories:
         gid = cat.provider_id or config.provider_id
         required.setdefault(gid, set()).add(cat.model or config.model)
+    if config.cleanup_enabled:
+        for cat in config.categories:
+            cid = (
+                cat.cleanup_provider_id
+                or config.cleanup_provider_id
+                or cat.provider_id
+                or config.provider_id
+            )
+            cm = cat.cleanup_model or config.cleanup_model or config.model
+            if cm:
+                required.setdefault(cid, set()).add(cm)
     if config.judge_enabled:
         for cat in config.categories:
             jid = (
@@ -585,13 +622,38 @@ async def add_reasoning_endpoint(
     The reasoning pass is a *new* row in `jobs` with `parent_job_id` pointing at
     the source. The source dataset is never mutated. Export composes the final
     JSONL on the fly based on `reasoning_format` (inline `<think>` injected into
-    the first assistant turn, or top-level `reasoning` field).
+    the first assistant turn, top-level `reasoning` field, or OpenAI-style
+    `messages` with per-message `reasoning_content`).
     """
     # Local import — reasoning_service imports from this module (helpers like
     # _is_merged), so a top-level import would create a circular dependency.
     from app.services.reasoning_service import spawn_reasoning_job
 
     return await spawn_reasoning_job(source_job_id, body, db)
+
+
+@router.post("/{source_job_id}/add-cleanup", response_model=CleanupJobResponse, status_code=202)
+async def add_cleanup_endpoint(
+    source_job_id: str,
+    body: CleanupJobRequest,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> CleanupJobResponse:
+    """Spawn a cleanup post-process job over a finished dataset.
+
+    Copies every example from `source_job_id` into a *new* job (with
+    `parent_job_id` pointing back at the source) and runs the cleanup stage
+    over the copies. The source dataset is never mutated, so a cleanup model
+    that turns out to rewrite instead of normalize costs one deleted job.
+
+    Same stage as the inline `generation → cleanup → judge` pass; this is the
+    after-the-fact entry point into it.
+    """
+    # Local import — cleanup_post_service imports helpers from this module's
+    # dependency graph, so a top-level import risks a circular dependency
+    # (same reason as add-reasoning above).
+    from app.services.cleanup_post_service import spawn_cleanup_job
+
+    return await spawn_cleanup_job(source_job_id, body, db)
 
 
 @router.post("/{job_id}/dismiss", response_model=JobResponse, status_code=200)
@@ -1422,7 +1484,61 @@ async def delete_example(
     await db.execute("UPDATE jobs SET stats_json = NULL WHERE id = ?", (job_id,))
     await db.commit()
 
-    # Keep JSONL file(s) in sync with DB state
+    await _sync_jsonl_after_delete(job_id, db)
+
+
+# SQLite caps bound parameters per statement (999 on older builds); stay
+# well under it.
+_BULK_DELETE_CHUNK = 500
+
+
+@router.post(
+    "/{job_id}/examples/bulk-delete",
+    response_model=BulkDeleteExamplesResponse,
+)
+async def bulk_delete_examples(
+    job_id: str,
+    body: BulkDeleteExamplesRequest,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> BulkDeleteExamplesResponse:
+    """Delete many examples in one request — dedup's "Remove all lower-scored".
+
+    One commit and ONE JSONL re-export at the end. Going through the
+    single-example endpoint instead re-exported the whole JSONL per row:
+    278 dedup deletions on a 6600-example reasoning dataset rewrote a 31 MB
+    file 278 times, ~3 minutes with nothing on screen to show progress.
+    """
+    async with await db.execute("SELECT id FROM jobs WHERE id = ?", (job_id,)) as cur:
+        if not await cur.fetchone():
+            raise HTTPException(status_code=404, detail="Job not found")
+
+    ids = list(dict.fromkeys(body.example_ids))  # drop repeats, keep order
+    deleted = 0
+    for start in range(0, len(ids), _BULK_DELETE_CHUNK):
+        chunk = ids[start:start + _BULK_DELETE_CHUNK]
+        placeholders = ",".join("?" * len(chunk))
+        cur = await db.execute(
+            f"DELETE FROM examples WHERE job_id = ? AND id IN ({placeholders})",
+            (job_id, *chunk),
+        )
+        deleted += cur.rowcount
+    if deleted:
+        await db.execute("UPDATE jobs SET stats_json = NULL WHERE id = ?", (job_id,))
+    await db.commit()
+
+    if deleted:
+        remaining = await _sync_jsonl_after_delete(job_id, db)
+    else:
+        async with await db.execute(
+            "SELECT COUNT(*) AS n FROM examples WHERE job_id = ?", (job_id,)
+        ) as cur:
+            remaining = (await cur.fetchone())["n"]
+    return BulkDeleteExamplesResponse(deleted=deleted, remaining=remaining)
+
+
+async def _sync_jsonl_after_delete(job_id: str, db: aiosqlite.Connection) -> int:
+    """Keep the job's JSONL file(s) in sync with the DB after rows were
+    deleted. Returns the number of examples left in the job."""
     jsonl_path = settings.datasets_dir / f"{job_id}.jsonl"
     metadata_path = settings.datasets_dir / f"{job_id}_with_metadata.jsonl"
     async with await db.execute(
@@ -1436,5 +1552,6 @@ async def delete_example(
         await export_job(job_id, db)
         # Drop the metadata flavour — user can regenerate via POST /add-metadata
         # to pick up the deletion. Cheaper than recomputing it on every
-        # single-row delete (no LLM calls, but still a full table scan).
+        # delete (no LLM calls, but still a full table scan).
         metadata_path.unlink(missing_ok=True)
+    return remaining

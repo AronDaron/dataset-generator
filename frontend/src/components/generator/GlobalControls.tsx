@@ -18,10 +18,12 @@ interface GlobalControlsProps {
   totalExamples: number
   conversationTurns: number
   format: string
+  cleanupEnabled: boolean
   onTemperatureChange: (v: number) => void
   onMaxTokensChange: (v: number) => void
   onTotalExamplesChange: (v: number) => void
   onConversationTurnsChange: (v: number) => void
+  onCleanupEnabledChange: (v: boolean) => void
 }
 
 export function GlobalControls({
@@ -30,10 +32,12 @@ export function GlobalControls({
   totalExamples,
   conversationTurns,
   format,
+  cleanupEnabled,
   onTemperatureChange,
   onMaxTokensChange,
   onTotalExamplesChange,
   onConversationTurnsChange,
+  onCleanupEnabledChange,
 }: GlobalControlsProps) {
   const isAlpaca = format === 'alpaca'
 
@@ -104,6 +108,34 @@ export function GlobalControls({
                 </p>
               )}
             </div>
+
+            {/* Cleanup — per-run switch, not a slider, so the whole row toggles */}
+            <button
+              type="button"
+              aria-pressed={cleanupEnabled}
+              onClick={() => onCleanupEnabledChange(!cleanupEnabled)}
+              className="flex w-full items-center justify-between px-4 py-3.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-text-0">Cleanup</span>
+                <span className="mt-0.5 block text-xs text-text-3">
+                  Removes format defects · extra API cost
+                </span>
+              </span>
+              <span
+                className={cn(
+                  'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors',
+                  cleanupEnabled ? 'bg-primary' : 'bg-muted',
+                )}
+              >
+                <span
+                  className={cn(
+                    'pointer-events-none block size-4 rounded-full bg-text-0 shadow transition-transform',
+                    cleanupEnabled ? 'translate-x-4' : 'translate-x-0',
+                  )}
+                />
+              </span>
+            </button>
           </div>
         </CardContent>
       </Card>

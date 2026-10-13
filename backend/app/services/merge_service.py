@@ -48,8 +48,9 @@ _MERGE_EXAMPLE_INSERT_SQL = (
     "INSERT INTO examples "
     "(id, job_id, content_json, format, tokens, judge_score, category, model, "
     "prompt_tokens, completion_tokens, judge_prompt_tokens, judge_completion_tokens, "
+    "cleanup_prompt_tokens, cleanup_completion_tokens, "
     "reasoning, reasoning_model_used) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 
 
@@ -280,6 +281,7 @@ def _row_to_params(r: dict, merged_job_id: str) -> tuple:
         r["tokens"], r["judge_score"], r["category"] or "",
         r["model"] or "", r["prompt_tokens"], r["completion_tokens"],
         r["judge_prompt_tokens"], r["judge_completion_tokens"],
+        r.get("cleanup_prompt_tokens") or 0, r.get("cleanup_completion_tokens") or 0,
         r.get("reasoning"), r.get("reasoning_model_used"),
     )
 
@@ -326,7 +328,8 @@ async def _merge_job_task(
         select_sql = (
             f"SELECT content_json, format, tokens, judge_score, category, model, "
             f"prompt_tokens, completion_tokens, judge_prompt_tokens, "
-            f"judge_completion_tokens, reasoning, reasoning_model_used "
+            f"judge_completion_tokens, cleanup_prompt_tokens, cleanup_completion_tokens, "
+            f"reasoning, reasoning_model_used "
             f"FROM examples WHERE job_id IN ({placeholders}) ORDER BY created_at ASC"
         )
 

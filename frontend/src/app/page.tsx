@@ -9,7 +9,7 @@ import { CategoryList } from '@/components/generator/CategoryList'
 import { GlobalControls } from '@/components/generator/GlobalControls'
 import { FormatSelector } from '@/components/generator/FormatSelector'
 import { type Category, toApiProportions } from '@/lib/proportions'
-import { getApiKey, getConfig, getModels, createJob, getResumableJobs, type ModelOption, type ResumableJobsResponse } from '@/lib/api'
+import { getApiKey, getConfig, getModels, createJob, getResumableJobs, getJobs, type ModelOption, type ResumableJobsResponse } from '@/lib/api'
 import { toGroupedOptions } from '@/lib/model-utils'
 import { JobDashboard } from '@/components/generator/JobDashboard'
 import { NotificationsPopover } from '@/components/generator/NotificationsPopover'
@@ -25,6 +25,7 @@ interface GeneratorDraft {
   totalExamples: number
   format: ExportFormat
   conversationTurns: number
+  cleanupEnabled: boolean
 }
 
 function loadDraft(): Partial<GeneratorDraft> {
@@ -65,9 +66,32 @@ export default function GeneratorPage() {
   const [conversationTurns, setConversationTurns] = useState(2)
   const [judgeCriteria, setJudgeCriteria] = useState('relevance, coherence, naturalness, and educational value')
   const [judgeProvider, setJudgeProvider] = useState('')
+  // Cleanup — the per-run switch lives in the generator draft (not in the
+  // global config), so closing SettingsDialog never overwrites it.
+  const [cleanupEnabled, setCleanupEnabled] = useState(false)
+
+  // Turning cleanup off hides the per-category selects, so any override left
+  // behind becomes invisible yet still outranks the global Settings model.
+  // Clear it, keeping what is stored equal to what the user can see.
+  function handleCleanupEnabledChange(value: boolean) {
+    setCleanupEnabled(value)
+    if (!value) {
+      setCategories((prev) =>
+        prev.map((c) =>
+          c.cleanupModel || c.cleanupProvider
+            ? { ...c, cleanupModel: undefined, cleanupProvider: undefined }
+            : c,
+        ),
+      )
+    }
+  }
+  const [cleanupModel, setCleanupModel] = useState('')
+  const [cleanupRules, setCleanupRules] = useState('')
+  const [cleanupProvider, setCleanupProvider] = useState('')
   const [modelList, setModelList] = useState<ModelOption[]>([])
   const [modelPricing, setModelPricing] = useState<{ prompt: string; completion: string } | undefined>()
   const [judgePricing, setJudgePricing] = useState<{ prompt: string; completion: string } | undefined>()
+  const [cleanupPricing, setCleanupPricing] = useState<{ prompt: string; completion: string } | undefined>()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -87,14 +111,15 @@ export default function GeneratorPage() {
     if (draft.totalExamples != null) setTotalExamples(draft.totalExamples)
     if (draft.format) setFormat(draft.format)
     if (draft.conversationTurns != null) setConversationTurns(draft.conversationTurns)
+    if (draft.cleanupEnabled != null) setCleanupEnabled(draft.cleanupEnabled)
     setDraftLoaded(true)
   }, [])
 
   // Persist draft (categories + form settings) to localStorage
   useEffect(() => {
     if (!draftLoaded) return
-    saveDraft({ categories, temperature, maxTokens, totalExamples, format, conversationTurns })
-  }, [categories, temperature, maxTokens, totalExamples, format, conversationTurns, draftLoaded])
+    saveDraft({ categories, temperature, maxTokens, totalExamples, format, conversationTurns, cleanupEnabled })
+  }, [categories, temperature, maxTokens, totalExamples, format, conversationTurns, cleanupEnabled, draftLoaded])
 
   // Persist active job across page reloads (e.g. HMR or accidental refresh)
   const SESSION_KEY = 'activeJobId'
@@ -104,10 +129,24 @@ export default function GeneratorPage() {
     else sessionStorage.removeItem(SESSION_KEY)
   }
 
-  // Restore job id from sessionStorage on mount
+  // On mount, ask backend who's running (source of truth).
+  // sessionStorage is fallback only — backend always wins.
   useEffect(() => {
-    const saved = sessionStorage.getItem(SESSION_KEY)
-    if (saved) setCreatedJobId(saved)
+    getJobs()
+      .then((jobs) => {
+        const active = jobs.find((j) => j.status === 'running' || j.status === 'pending')
+        if (active) {
+          setCreatedJobId(active.id)
+          sessionStorage.setItem(SESSION_KEY, active.id)
+        } else {
+          const saved = sessionStorage.getItem(SESSION_KEY)
+          if (saved) setCreatedJobId(saved)
+        }
+      })
+      .catch(() => {
+        const saved = sessionStorage.getItem(SESSION_KEY)
+        if (saved) setCreatedJobId(saved)
+      })
   }, [])
 
   const NOTIFICATIONS_SEEN_KEY = 'notificationsSeenAt'
@@ -145,11 +184,15 @@ export default function GeneratorPage() {
         setConversationTurns(config.conversation_turns)
         setJudgeCriteria(config.judge_criteria)
         setJudgeProvider(config.judge_provider ?? '')
+        setCleanupModel(config.cleanup_model ?? '')
+        setCleanupRules(config.cleanup_rules ?? '')
+        setCleanupProvider(config.cleanup_provider ?? '')
         if (!keyStatus.has_key) setSettingsOpen(true)
         else getModels().then((list) => {
           setModelList(list)
           if (config.default_model) setModelPricing(list.find((m) => m.id === config.default_model)?.pricing)
           if (config.judge_model) setJudgePricing(list.find((m) => m.id === config.judge_model)?.pricing)
+          if (config.cleanup_model) setCleanupPricing(list.find((m) => m.id === config.cleanup_model)?.pricing)
         }).catch(() => {/* non-fatal */})
       })
       .catch(() => setSettingsOpen(true))
@@ -172,6 +215,18 @@ export default function GeneratorPage() {
         estPromptPerTurn * promptPrice + estCompletionPerTurn * completionPrice
       )
     }
+    if (cleanupEnabled) {
+      // Cleanup re-sends the whole example and returns it slightly shorter,
+      // so both sides scale with the generated content, not with a fixed
+      // rubric like the judge does.
+      const effectiveCleanupPricing = cleanupPricing ?? modelPricing
+      if (effectiveCleanupPricing) {
+        cost += totalExamples * (
+          (maxTokens * 0.6 + 400) * parseFloat(effectiveCleanupPricing.prompt) +
+          (maxTokens * 0.45) * parseFloat(effectiveCleanupPricing.completion)
+        )
+      }
+    }
     if (judgeEnabled) {
       const effectiveJudgePricing = judgePricing ?? modelPricing
       if (effectiveJudgePricing) {
@@ -182,7 +237,7 @@ export default function GeneratorPage() {
       }
     }
     return cost > 0 ? cost : null
-  }, [categories, model, modelList, totalExamples, maxTokens, conversationTurns, judgeEnabled, judgePricing, modelPricing])
+  }, [categories, model, modelList, totalExamples, maxTokens, conversationTurns, judgeEnabled, judgePricing, modelPricing, cleanupEnabled, cleanupPricing])
 
   function isValid(): boolean {
     if (categories.length === 0) return false
@@ -216,8 +271,13 @@ export default function GeneratorPage() {
           const jPricing = effectiveJudgeModelId
             ? modelList.find((m) => m.id === effectiveJudgeModelId)?.pricing
             : null
+          const effectiveCleanupModelId = c.cleanupModel || cleanupModel
+          const cPricing = effectiveCleanupModelId
+            ? modelList.find((m) => m.id === effectiveCleanupModelId)?.pricing
+            : null
           const catProviderId = findProviderId(c.model)
           const catJudgeProviderId = findProviderId(c.judgeModel)
+          const catCleanupProviderId = findProviderId(c.cleanupModel)
           return {
             name: c.name.trim(),
             description: c.description.trim(),
@@ -232,6 +292,14 @@ export default function GeneratorPage() {
             ...(catJudgeProviderId ? { judge_provider_id: catJudgeProviderId } : {}),
             judge_prompt_price: jPricing ? parseFloat(jPricing.prompt) : (judgePricing ? parseFloat(judgePricing.prompt) : 0),
             judge_completion_price: jPricing ? parseFloat(jPricing.completion) : (judgePricing ? parseFloat(judgePricing.completion) : 0),
+            // Only ship per-category cleanup overrides when the stage is on.
+            // The selects are hidden while cleanup is off, so a stale value the
+            // user cannot see would otherwise win over their Settings choice.
+            ...(cleanupEnabled && c.cleanupModel ? { cleanup_model: c.cleanupModel } : {}),
+            ...(cleanupEnabled && c.cleanupProvider ? { cleanup_provider: c.cleanupProvider } : {}),
+            ...(cleanupEnabled && catCleanupProviderId ? { cleanup_provider_id: catCleanupProviderId } : {}),
+            cleanup_prompt_price: cPricing ? parseFloat(cPricing.prompt) : (cleanupPricing ? parseFloat(cleanupPricing.prompt) : 0),
+            cleanup_completion_price: cPricing ? parseFloat(cPricing.completion) : (cleanupPricing ? parseFloat(cleanupPricing.completion) : 0),
           }
         }),
         total_examples: totalExamples,
@@ -255,6 +323,13 @@ export default function GeneratorPage() {
           : 0,
         judge_prompt_price: judgePricing ? parseFloat(judgePricing.prompt) : 0,
         judge_completion_price: judgePricing ? parseFloat(judgePricing.completion) : 0,
+        cleanup_enabled: cleanupEnabled,
+        ...(cleanupModel ? { cleanup_model: cleanupModel } : {}),
+        ...(cleanupRules ? { cleanup_rules: cleanupRules } : {}),
+        ...(cleanupProvider ? { cleanup_provider: cleanupProvider } : {}),
+        ...(findProviderId(cleanupModel) ? { cleanup_provider_id: findProviderId(cleanupModel) } : {}),
+        cleanup_prompt_price: cleanupPricing ? parseFloat(cleanupPricing.prompt) : 0,
+        cleanup_completion_price: cleanupPricing ? parseFloat(cleanupPricing.completion) : 0,
       })
       setActiveJobThreshold(judgeThreshold)
       updateJobId(result.id)
@@ -320,6 +395,7 @@ export default function GeneratorPage() {
             onChange={setCategories}
             modelOptions={toGroupedOptions(modelList)}
             judgeEnabled={judgeEnabled}
+            cleanupEnabled={cleanupEnabled}
           />
         </div>
 
@@ -340,10 +416,12 @@ export default function GeneratorPage() {
                 totalExamples={totalExamples}
                 conversationTurns={conversationTurns}
                 format={format}
+                cleanupEnabled={cleanupEnabled}
                 onTemperatureChange={setTemperature}
                 onMaxTokensChange={setMaxTokens}
                 onTotalExamplesChange={setTotalExamples}
                 onConversationTurnsChange={setConversationTurns}
+                onCleanupEnabledChange={handleCleanupEnabledChange}
               />
 
               <FormatSelector
@@ -398,6 +476,7 @@ export default function GeneratorPage() {
             setModelList(list)
             setModelPricing(list.find((m) => m.id === model)?.pricing)
             setJudgePricing(list.find((m) => m.id === judgeModel)?.pricing)
+            setCleanupPricing(list.find((m) => m.id === cleanupModel)?.pricing)
           }).catch(() => { /* non-fatal */ })
         }}
         onClose={() => {
@@ -410,6 +489,14 @@ export default function GeneratorPage() {
             setConversationTurns(config.conversation_turns)
             setJudgeCriteria(config.judge_criteria)
             setJudgeProvider(config.judge_provider ?? '')
+            setCleanupModel(config.cleanup_model ?? '')
+            setCleanupRules(config.cleanup_rules ?? '')
+            setCleanupProvider(config.cleanup_provider ?? '')
+            setCleanupPricing(
+              config.cleanup_model
+                ? modelList.find((m) => m.id === config.cleanup_model)?.pricing
+                : undefined,
+            )
           }).catch(() => {/* non-fatal */})
           // Re-fetch models if list is empty (e.g. after adding API key for the first time)
           if (modelList.length === 0) {

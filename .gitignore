@@ -44,11 +44,13 @@ Fixy-todo*
 Audyt*.md
 finetunetesty.md
 kategorie*.md
+local_cat.md
 plan_*.md
 testy_*.md
 Testy.md
 promocja.md
 roadmap.md
+rozwoj.md
 
 # Lokalne ustawienia Claude Code
 .claude/
@@ -74,6 +76,7 @@ post_dev_to.md
 post_reddit.md
 disti.md
 porownanie.md
+rozwoj.md
 
 # Python test/lint caches
 .coverage
